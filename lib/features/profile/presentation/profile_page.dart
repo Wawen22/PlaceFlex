@@ -1,0 +1,237 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../data/profile_repository.dart';
+import '../models/profile.dart';
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final _formKey = GlobalKey<FormState>();
+  final _displayNameController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _bioController = TextEditingController();
+  final _repository = ProfileRepository();
+
+  bool _isLoading = true;
+  bool _isSaving = false;
+  UserProfile? _profile;
+
+  SupabaseClient get _client => Supabase.instance.client;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _displayNameController.dispose();
+    _usernameController.dispose();
+    _bioController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final profile = await _repository.getOrCreateProfile(user.id);
+      _profile = profile;
+      _displayNameController.text = profile.displayName ?? '';
+      _usernameController.text = profile.username ?? '';
+      _bioController.text = profile.bio ?? '';
+    } catch (error) {
+      _showSnack('Impossibile caricare il profilo: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate() || _profile == null) {
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final updated = await _repository.updateProfile(
+        _profile!.copyWith(
+          displayName: _displayNameController.text.trim().isEmpty
+              ? null
+              : _displayNameController.text.trim(),
+          username: _usernameController.text.trim().isEmpty
+              ? null
+              : _usernameController.text.trim(),
+          bio: _bioController.text.trim().isEmpty
+              ? null
+              : _bioController.text.trim(),
+        ),
+      );
+
+      setState(() => _profile = updated);
+      _showSnack('Profilo aggiornato.');
+    } on PostgrestException catch (error) {
+      if (error.code == '23505') {
+        _showSnack('Questo username è già in uso.');
+      } else {
+        _showSnack(error.message);
+      }
+    } catch (error) {
+      _showSnack('Errore: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      return const Center(child: Text('Sessione non attiva. Effettua nuovamente l\'accesso.'));
+    }
+
+    final theme = Theme.of(context);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Identità',
+              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _ProfileField(
+              controller: _displayNameController,
+              label: 'Nome visibile',
+              hint: 'Es. Martina G.',
+              validator: (value) {
+                if ((value ?? '').trim().length > 60) {
+                  return 'Max 60 caratteri';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _ProfileField(
+              controller: _usernameController,
+              label: 'Username',
+              hint: 'esploratore42',
+              validator: (value) {
+                final username = value?.trim() ?? '';
+                if (username.isEmpty) {
+                  return 'Inserisci uno username.';
+                }
+                final regex = RegExp(r'^[a-z0-9_.]{3,20}$');
+                if (!regex.hasMatch(username)) {
+                  return '3-20 caratteri, solo lettere, numeri, . e _';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _ProfileField(
+              controller: _bioController,
+              label: 'Bio',
+              hint: 'Racconta la tua storia in 160 caratteri',
+              maxLines: 4,
+              validator: (value) {
+                if ((value ?? '').length > 160) {
+                  return 'Max 160 caratteri';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Email'),
+              subtitle: Text(user.email ?? 'Non disponibile'),
+              leading: const Icon(Icons.alternate_email_outlined),
+            ),
+            if (_profile?.role != null) ...[
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Ruolo'),
+                subtitle: Text(_profile!.role!),
+                leading: const Icon(Icons.verified_user_outlined),
+              ),
+            ],
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _isSaving ? null : _saveProfile,
+              icon: _isSaving
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_rounded),
+              label: const Text('Salva profilo'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileField extends StatelessWidget {
+  const _ProfileField({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    this.maxLines = 1,
+    this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final int maxLines;
+  final String? Function(String?)? validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+      ),
+      validator: validator,
+    );
+  }
+}

@@ -1,0 +1,174 @@
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../core/constants.dart';
+import '../models/moment.dart';
+
+class CreateMomentInput {
+  CreateMomentInput({
+    required this.profileId,
+    required this.title,
+    this.description,
+    required this.mediaType,
+    this.mediaFile,
+    this.mediaBytes,
+    required this.visibility,
+    required this.latitude,
+    required this.longitude,
+    this.tags = const [],
+    this.radiusMeters = 100,
+    this.status = MomentStatus.published,
+  });
+
+  final String profileId;
+  final String title;
+  final String? description;
+  final MomentMediaType mediaType;
+  final XFile? mediaFile;
+  final Uint8List? mediaBytes;
+  final MomentVisibility visibility;
+  final double latitude;
+  final double longitude;
+  final List<String> tags;
+  final int radiusMeters;
+  final MomentStatus status;
+}
+
+class MomentsRepository {
+  MomentsRepository({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
+
+  final SupabaseClient _client;
+
+  Future<Moment> createMoment(CreateMomentInput input) async {
+    final bucketRef = _client.storage.from(AppConstants.momentsBucket);
+
+    await _ensureBucketExists();
+
+    String? mediaUrl;
+    String? thumbnailUrl;
+
+    if (input.mediaType != MomentMediaType.text) {
+      final uploadResult = await _uploadMedia(
+        bucketRef,
+        input.mediaFile,
+        input.mediaBytes,
+        input,
+      );
+      mediaUrl = uploadResult?.mediaUrl;
+      thumbnailUrl = uploadResult?.thumbnailUrl;
+    }
+
+    final payload = <String, dynamic>{
+      'profile_id': input.profileId,
+      'title': input.title,
+      'description': input.description,
+      'media_type': input.mediaType.name,
+      'media_url': mediaUrl,
+      'thumbnail_url': thumbnailUrl,
+      'visibility': input.visibility.name,
+      'status': input.status.name,
+      'tags': input.tags,
+      'radius_m': input.radiusMeters,
+      'location': {
+        'type': 'Point',
+        'coordinates': [input.longitude, input.latitude],
+      },
+    };
+
+    final inserted = await _client
+        .from('moments')
+        .insert(payload)
+        .select()
+        .maybeSingle();
+
+    if (inserted == null) {
+      throw StateError('Creazione momento fallita.');
+    }
+
+    return Moment.fromMap(Map<String, dynamic>.from(inserted));
+  }
+
+  Future<_UploadResult?> _uploadMedia(
+    StorageFileApi bucketRef,
+    XFile? file,
+    Uint8List? bytes,
+    CreateMomentInput input,
+  ) async {
+    if (file == null && bytes == null) {
+      throw ArgumentError('File media richiesto per il tipo ${input.mediaType.name}');
+    }
+
+    final byteData = bytes ?? await file!.readAsBytes();
+
+    final extension = _resolveExtension(input.mediaType, file);
+    final contentType = _resolveContentType(input.mediaType, file);
+    final fileName = _buildFilename(input.profileId, extension);
+
+    final path = '${input.profileId}/$fileName';
+
+    await bucketRef.uploadBinary(
+      path,
+      byteData,
+      fileOptions: FileOptions(contentType: contentType, upsert: true),
+    );
+
+    final publicUrl = bucketRef.getPublicUrl(path);
+
+    return _UploadResult(mediaUrl: publicUrl, thumbnailUrl: null);
+  }
+
+  Future<void> _ensureBucketExists() async {
+    try {
+      await _client.storage.createBucket(
+        AppConstants.momentsBucket,
+        const BucketOptions(public: true),
+      );
+    } on StorageException catch (error) {
+      if ('${error.statusCode}' == '409') {
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  String _buildFilename(String profileId, String extension) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return '${profileId}_$timestamp.$extension';
+  }
+
+  String _resolveExtension(MomentMediaType type, XFile? file) {
+    switch (type) {
+      case MomentMediaType.photo:
+        return 'jpg';
+      case MomentMediaType.video:
+        return 'mp4';
+      case MomentMediaType.audio:
+        return 'm4a';
+      case MomentMediaType.text:
+        return 'txt';
+    }
+  }
+
+  String _resolveContentType(MomentMediaType type, XFile? file) {
+    switch (type) {
+      case MomentMediaType.photo:
+        return 'image/jpeg';
+      case MomentMediaType.video:
+        return 'video/mp4';
+      case MomentMediaType.audio:
+        return 'audio/mp4';
+      case MomentMediaType.text:
+        return 'text/plain';
+    }
+  }
+}
+
+class _UploadResult {
+  _UploadResult({required this.mediaUrl, this.thumbnailUrl});
+
+  final String mediaUrl;
+  final String? thumbnailUrl;
+}
