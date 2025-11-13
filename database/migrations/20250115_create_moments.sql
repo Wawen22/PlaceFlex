@@ -2,10 +2,29 @@
 create extension if not exists postgis;
 create extension if not exists pgcrypto;
 
--- Enumerations
-create type if not exists public.moment_media_type as enum ('photo', 'video', 'audio', 'text');
-create type if not exists public.moment_visibility as enum ('public', 'private');
-create type if not exists public.moment_status as enum ('draft', 'published', 'flagged', 'review');
+do $$
+begin
+  create type public.moment_media_type as enum ('photo', 'video', 'audio', 'text');
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+do $$
+begin
+  create type public.moment_visibility as enum ('public', 'private');
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+do $$
+begin
+  create type public.moment_status as enum ('draft', 'published', 'flagged', 'review');
+exception
+  when duplicate_object then null;
+end;
+$$;
 
 -- Table definition
 create table if not exists public.moments (
