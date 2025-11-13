@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/theme/design_tokens.dart';
+import '../../../core/widgets/glass_card.dart';
 import '../../moments/presentation/create_moment_page.dart';
 import '../../profile/presentation/profile_page.dart';
 
@@ -34,7 +36,7 @@ class _HomeShellState extends State<HomeShell> {
           onMomentCreated: () {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Nuovo momento creato.')), 
+              const SnackBar(content: Text('Nuovo momento creato.')),
             );
           },
         ),
@@ -44,21 +46,58 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_selectedIndex == 0 ? 'Scopri' : 'Il tuo profilo'),
-        actions: [
-          IconButton(
-            onPressed: _signOut,
-            tooltip: 'Esci',
-            icon: const Icon(Icons.logout_rounded),
+      extendBody: true,
+      backgroundColor: Colors.transparent,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(76),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0x880F172A),
+                Color(0x440F172A),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
           ),
-        ],
+          child: AppBar(
+            title: Text(
+              _selectedIndex == 0 ? 'Scopri' : 'Il tuo profilo',
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Esci',
+                onPressed: _signOut,
+                icon: const Icon(Icons.logout_rounded, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
       ),
-      body: SafeArea(
-        child: IndexedStack(
-          index: _selectedIndex,
-          children: _pages,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFFF7F7FF),
+              Color(0xFFEDE9FF),
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: _pages[_selectedIndex],
+          ),
         ),
       ),
       floatingActionButton: _selectedIndex == 0
@@ -95,34 +134,117 @@ class _ExplorePlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.map_outlined,
-              size: 64,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Mappa & feed locale in arrivo',
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Questa sezione mostrerà i momenti attorno a te quando completeremo l\'integrazione della mappa.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        GlassCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.map_rounded, size: 48, color: AppColors.secondary),
+              const SizedBox(height: 16),
+              Text(
+                'Mappa immersiva in arrivo',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'Stiamo ultimando la vista mappa e il feed locale. Presto potrai esplorare momenti fissati nei luoghi attorno a te.',
+                style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 20),
+        GlassCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Cosa troverai',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const _PlaceholderStep(
+                icon: Icons.scatter_plot_outlined,
+                title: 'Cluster intelligenti',
+                subtitle:
+                    'I momenti vicini verranno raggruppati per navigare mappe dense in pochi tap.',
+              ),
+              const SizedBox(height: 12),
+              const _PlaceholderStep(
+                icon: Icons.filter_alt_outlined,
+                title: 'Filtri dinamici',
+                subtitle: 'Seleziona raggio, media e trend curati dalla community.',
+              ),
+              const SizedBox(height: 12),
+              const _PlaceholderStep(
+                icon: Icons.notifications_active_outlined,
+                title: 'Alert di prossimità',
+                subtitle: 'Ricevi una notifica quando entri in un’area con momenti ad alto engagement.',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaceholderStep extends StatelessWidget {
+  const _PlaceholderStep({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          height: 44,
+          width: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withOpacity(0.08),
+            border: Border.all(color: Colors.white.withOpacity(0.2)),
+          ),
+          child: Icon(icon, color: AppColors.secondary),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

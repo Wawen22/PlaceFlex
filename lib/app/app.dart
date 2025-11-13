@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../features/auth/presentation/auth_page.dart';
-import '../features/home/presentation/home_shell.dart';
+import '../features/auth/presentation/auth_page_2026.dart';
+import '../features/home/presentation/home_shell_2026.dart';
 import 'theme.dart';
 
 class PlaceFlexApp extends StatefulWidget {
@@ -51,9 +51,7 @@ class _PlaceFlexAppState extends State<PlaceFlexApp> {
   }
 
   void _showSnack(String message) {
-    _messengerKey.currentState?.showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    _messengerKey.currentState?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -69,6 +67,8 @@ class _PlaceFlexAppState extends State<PlaceFlexApp> {
     return MaterialApp(
       title: 'PlaceFlex',
       theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
       navigatorKey: _navigatorKey,
       scaffoldMessengerKey: _messengerKey,
       home: isAuthenticated ? const HomeShell() : const AuthPage(),

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:postgrest/postgrest.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:placeflex_app/core/constants.dart';
@@ -11,14 +13,18 @@ import 'package:placeflex_app/features/moments/models/moment.dart';
 
 class _MockSupabaseClient extends Mock implements SupabaseClient {}
 
-class _MockSupabaseStorageClient extends Mock implements SupabaseStorageClient {}
+class _MockSupabaseStorageClient extends Mock
+    implements SupabaseStorageClient {}
 
 class _MockStorageFileApi extends Mock implements StorageFileApi {}
 
 class _MockSupabaseQueryBuilder extends Mock implements SupabaseQueryBuilder {}
 
 class _MockPostgrestFilterBuilder extends Mock
-    implements PostgrestFilterBuilder<Map<String, dynamic>> {}
+    implements PostgrestFilterBuilder<PostgrestList> {}
+
+class _MockPostgrestTransformBuilder<T> extends Mock
+    implements PostgrestTransformBuilder<T> {}
 
 void main() {
   late _MockSupabaseClient client;
@@ -26,10 +32,14 @@ void main() {
   late _MockStorageFileApi fileApi;
   late _MockSupabaseQueryBuilder queryBuilder;
   late _MockPostgrestFilterBuilder filterBuilder;
+  late _MockPostgrestTransformBuilder<PostgrestList> selectBuilder;
+  late _MockPostgrestTransformBuilder<PostgrestMap?> maybeSingleBuilder;
 
   setUpAll(() {
     registerFallbackValue(BucketOptions(public: true));
     registerFallbackValue(FileOptions(contentType: 'image/jpeg'));
+    registerFallbackValue(Uint8List(0));
+    registerFallbackValue(Duration.zero);
   });
 
   setUp(() {
@@ -38,16 +48,33 @@ void main() {
     fileApi = _MockStorageFileApi();
     queryBuilder = _MockSupabaseQueryBuilder();
     filterBuilder = _MockPostgrestFilterBuilder();
+    selectBuilder = _MockPostgrestTransformBuilder<PostgrestList>();
+    maybeSingleBuilder = _MockPostgrestTransformBuilder<PostgrestMap?>();
 
     when(() => client.storage).thenReturn(storageClient);
-    when(() => storageClient.from(AppConstants.momentsBucket)).thenReturn(fileApi);
-    when(() => storageClient.createBucket(any(), any())).thenAnswer((_) async {});
-    when(() => fileApi.uploadBinary(any(), any(), fileOptions: any(named: 'fileOptions')))
-        .thenAnswer((_) async {});
-    when(() => fileApi.getPublicUrl(any())).thenReturn('https://cdn.placeflex.test/path.png');
-    when(() => client.from('moments')).thenReturn(queryBuilder);
-    when(() => queryBuilder.insert(any())).thenReturn(filterBuilder);
-    when(() => filterBuilder.select()).thenReturn(filterBuilder);
+    when(
+      () => storageClient.from(AppConstants.momentsBucket),
+    ).thenReturn(fileApi);
+    when(
+      () => storageClient.createBucket(any(), any()),
+    ).thenAnswer((_) async => AppConstants.momentsBucket);
+    when(
+      () => fileApi.uploadBinary(
+        any(),
+        any(),
+        fileOptions: any(named: 'fileOptions'),
+      ),
+    ).thenAnswer((_) async => 'upload-id');
+    when(
+      () => fileApi.getPublicUrl(any()),
+    ).thenReturn('https://cdn.placeflex.test/path.png');
+    when(() => client.from('moments')).thenAnswer((_) => queryBuilder);
+    when(() => queryBuilder.insert(any())).thenAnswer((_) => filterBuilder);
+    when(() => filterBuilder.select()).thenAnswer((_) => selectBuilder);
+    when(() => filterBuilder.select(any())).thenAnswer((_) => selectBuilder);
+    when(
+      () => selectBuilder.maybeSingle(),
+    ).thenAnswer((_) => maybeSingleBuilder);
   });
 
   group('createMoment', () {
@@ -57,18 +84,15 @@ void main() {
       late FileOptions? uploadedOptions;
 
       when(() => queryBuilder.insert(any())).thenAnswer((invocation) {
-        payload = Map<String, dynamic>.from(invocation.positionalArguments.first as Map);
+        payload = Map<String, dynamic>.from(
+          invocation.positionalArguments.first as Map,
+        );
         return filterBuilder;
       });
 
-      when(() => fileApi.uploadBinary(any(), any(), fileOptions: any(named: 'fileOptions')))
-          .thenAnswer((invocation) async {
-        uploadedPath = invocation.positionalArguments.first as String;
-        uploadedOptions = invocation.namedArguments[#fileOptions] as FileOptions?;
-      });
-
-      when(() => filterBuilder.maybeSingle()).thenAnswer((_) async {
-        return {
+      _stubFutureOnBuilder(
+        builder: maybeSingleBuilder,
+        result: {
           'id': '123',
           'profile_id': 'profile-1',
           'title': 'Duomo Sunset',
@@ -86,7 +110,20 @@ void main() {
           },
           'created_at': DateTime.utc(2024, 1, 1).toIso8601String(),
           'updated_at': DateTime.utc(2024, 1, 1).toIso8601String(),
-        };
+        },
+      );
+
+      when(
+        () => fileApi.uploadBinary(
+          any(),
+          any(),
+          fileOptions: any(named: 'fileOptions'),
+        ),
+      ).thenAnswer((invocation) async {
+        uploadedPath = invocation.positionalArguments.first as String;
+        uploadedOptions =
+            invocation.namedArguments[#fileOptions] as FileOptions?;
+        return 'upload-id';
       });
 
       final repository = MomentsRepository(client: client);
@@ -126,15 +163,23 @@ void main() {
       expect(uploadedPath, endsWith('.png'));
       expect(uploadedOptions?.contentType, 'image/png');
 
-      verify(() => storageClient.createBucket(AppConstants.momentsBucket, any())).called(1);
-      verify(() => fileApi.uploadBinary(any(), any(), fileOptions: any(named: 'fileOptions')))
-          .called(1);
+      verify(
+        () => storageClient.createBucket(AppConstants.momentsBucket, any()),
+      ).called(1);
+      verify(
+        () => fileApi.uploadBinary(
+          any(),
+          any(),
+          fileOptions: any(named: 'fileOptions'),
+        ),
+      ).called(1);
       verify(() => fileApi.getPublicUrl(uploadedPath)).called(1);
     });
 
     test('skips upload for text-only moments', () async {
-      when(() => filterBuilder.maybeSingle()).thenAnswer((_) async {
-        return {
+      _stubFutureOnBuilder(
+        builder: maybeSingleBuilder,
+        result: {
           'id': 'abc',
           'profile_id': 'profile-2',
           'title': 'Solo testo',
@@ -152,8 +197,8 @@ void main() {
           },
           'created_at': DateTime.utc(2024, 5, 4).toIso8601String(),
           'updated_at': DateTime.utc(2024, 5, 4).toIso8601String(),
-        };
-      });
+        },
+      );
 
       final repository = MomentsRepository(client: client);
 
@@ -171,7 +216,13 @@ void main() {
       expect(result.mediaType, MomentMediaType.text);
       expect(result.mediaUrl, isNull);
 
-      verifyNever(() => fileApi.uploadBinary(any(), any(), fileOptions: any(named: 'fileOptions')));
+      verifyNever(
+        () => fileApi.uploadBinary(
+          any(),
+          any(),
+          fileOptions: any(named: 'fileOptions'),
+        ),
+      );
     });
   });
 
@@ -204,4 +255,45 @@ void main() {
       expect(moment.tags, ['tag']);
     });
   });
+}
+
+void _stubFutureOnBuilder<T>({
+  required _MockPostgrestTransformBuilder<T> builder,
+  required T result,
+}) {
+  when(
+    () => builder.then<dynamic>(any(), onError: any(named: 'onError')),
+  ).thenAnswer((invocation) {
+    final onValue = invocation.positionalArguments.first as dynamic Function(T);
+    final onError = invocation.namedArguments[#onError] as Function?;
+    return Future<T>.value(result).then(onValue, onError: onError);
+  });
+
+  when(() => builder.catchError(any(), test: any(named: 'test'))).thenAnswer((
+    invocation,
+  ) {
+    final handler = invocation.positionalArguments.first as Function;
+    final test =
+        invocation.namedArguments[#test] as bool Function(Object)? ??
+        (_) => true;
+    return Future<T>.value(result).catchError(handler, test: test);
+  });
+
+  when(
+    () => builder.timeout(any(), onTimeout: any(named: 'onTimeout')),
+  ).thenAnswer((invocation) {
+    final duration = invocation.positionalArguments.first as Duration;
+    final onTimeout =
+        invocation.namedArguments[#onTimeout] as FutureOr<T> Function()?;
+    return Future<T>.value(result).timeout(duration, onTimeout: onTimeout);
+  });
+
+  when(() => builder.whenComplete(any())).thenAnswer((invocation) {
+    final action = invocation.positionalArguments.first as FutureOr Function();
+    return Future<T>.value(result).whenComplete(action);
+  });
+
+  when(
+    () => builder.asStream(),
+  ).thenAnswer((_) => Future<T>.value(result).asStream());
 }
