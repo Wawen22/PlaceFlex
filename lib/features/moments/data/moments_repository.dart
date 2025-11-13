@@ -140,6 +140,11 @@ class MomentsRepository {
   }
 
   String _resolveExtension(MomentMediaType type, XFile? file) {
+    final detected = _detectExtension(file);
+    if (detected != null && detected.isNotEmpty) {
+      return detected;
+    }
+
     switch (type) {
       case MomentMediaType.photo:
         return 'jpg';
@@ -153,6 +158,11 @@ class MomentsRepository {
   }
 
   String _resolveContentType(MomentMediaType type, XFile? file) {
+    final mimeType = file?.mimeType;
+    if (mimeType != null && mimeType.isNotEmpty) {
+      return mimeType;
+    }
+
     switch (type) {
       case MomentMediaType.photo:
         return 'image/jpeg';
@@ -163,6 +173,42 @@ class MomentsRepository {
       case MomentMediaType.text:
         return 'text/plain';
     }
+  }
+
+  String? _detectExtension(XFile? file) {
+    if (file == null) return null;
+
+    final name = file.name;
+    final fromName = _extensionFromValue(name);
+    if (fromName != null) {
+      return fromName;
+    }
+
+    final path = file.path;
+    final fromPath = _extensionFromValue(path);
+    if (fromPath != null) {
+      return fromPath;
+    }
+
+    final mimeType = file.mimeType;
+    if (mimeType != null && mimeType.contains('/')) {
+      return mimeType.split('/').last;
+    }
+
+    return null;
+  }
+
+  String? _extensionFromValue(String? value) {
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    final dotIndex = value.lastIndexOf('.');
+    if (dotIndex == -1 || dotIndex == value.length - 1) {
+      return null;
+    }
+
+    return value.substring(dotIndex + 1);
   }
 }
 
