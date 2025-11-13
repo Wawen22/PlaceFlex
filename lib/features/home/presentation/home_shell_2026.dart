@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/colors_2026.dart';
 import '../../../core/theme/spacing_2026.dart';
-import '../../../core/widgets/modern_card.dart';
+import '../../map/presentation/map_screen.dart';
 import '../../moments/presentation/create_moment_page_2026.dart';
 import '../../profile/presentation/profile_page_2026.dart';
 
@@ -118,7 +118,10 @@ class _HomeShellState extends State<HomeShell>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final pages = <Widget>[const _ExplorePage(), const ProfilePage2026()];
+    final pages = <Widget>[
+      const MapScreen(), // Mappa come prima tab
+      const ProfilePage2026(),
+    ];
 
     return Scaffold(
       extendBody: true,
@@ -266,162 +269,6 @@ class _HomeShellState extends State<HomeShell>
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Explore page placeholder con design moderno
-class _ExplorePage extends StatelessWidget {
-  const _ExplorePage();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: isDark
-            ? AppGradients2026.backgroundDark
-            : AppGradients2026.backgroundLight,
-      ),
-      child: ListView(
-        padding: const EdgeInsets.all(AppSpacing2026.lg),
-        children: [
-          // Hero card
-          ModernCard(
-            variant: ModernCardVariant.gradient,
-            gradient: AppGradients2026.buttonPrimary,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: AppSpacing2026.allSM,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: AppRadius2026.roundedMD,
-                  ),
-                  child: Icon(
-                    Icons.map_rounded,
-                    size: AppIconSize2026.xxl,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing2026.md),
-                Text(
-                  'Mappa immersiva',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing2026.xs),
-                Text(
-                  'Esplora momenti geolocalizzati attorno a te. La funzionalità sarà presto disponibile!',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: Colors.white.withOpacity(0.9),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing2026.lg),
-
-          // Features grid
-          Text(
-            'Prossime funzionalità',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: AppSpacing2026.md),
-
-          const _FeatureCard(
-            icon: Icons.scatter_plot_outlined,
-            title: 'Cluster intelligenti',
-            description:
-                'Raggruppiamo i momenti vicini per navigare mappe dense',
-            color: AppColors2026.primary,
-          ),
-          const SizedBox(height: AppSpacing2026.sm),
-
-          const _FeatureCard(
-            icon: Icons.filter_alt_outlined,
-            title: 'Filtri dinamici',
-            description: 'Seleziona raggio, tipo media e trend della community',
-            color: AppColors2026.secondary,
-          ),
-          const SizedBox(height: AppSpacing2026.sm),
-
-          const _FeatureCard(
-            icon: Icons.notifications_active_outlined,
-            title: 'Alert di prossimità',
-            description: 'Notifiche quando entri in aree con alto engagement',
-            color: AppColors2026.accent,
-          ),
-
-          const SizedBox(height: AppSpacing2026.xxxl),
-        ],
-      ),
-    );
-  }
-}
-
-class _FeatureCard extends StatelessWidget {
-  const _FeatureCard({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return ModernCard(
-      variant: ModernCardVariant.elevated,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: AppSpacing2026.allSM,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: AppRadius2026.roundedXL,
-              border: Border.all(color: color.withOpacity(0.3), width: 1.5),
-            ),
-            child: Icon(icon, color: color, size: AppIconSize2026.lg),
-          ),
-          const SizedBox(width: AppSpacing2026.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing2026.xxxs),
-                Text(
-                  description,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

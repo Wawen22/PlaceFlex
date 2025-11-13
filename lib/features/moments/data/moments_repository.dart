@@ -38,7 +38,8 @@ class CreateMomentInput {
 }
 
 class MomentsRepository {
-  MomentsRepository({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
+  MomentsRepository({SupabaseClient? client})
+    : _client = client ?? Supabase.instance.client;
 
   final SupabaseClient _client;
 
@@ -98,7 +99,9 @@ class MomentsRepository {
     CreateMomentInput input,
   ) async {
     if (file == null && bytes == null) {
-      throw ArgumentError('File media richiesto per il tipo ${input.mediaType.name}');
+      throw ArgumentError(
+        'File media richiesto per il tipo ${input.mediaType.name}',
+      );
     }
 
     final byteData = bytes ?? await file!.readAsBytes();
@@ -209,6 +212,70 @@ class MomentsRepository {
     }
 
     return value.substring(dotIndex + 1);
+  }
+
+  /// Recupera momenti entro un raggio specificato da coordinate centrali
+  /// Usa RPC function con PostGIS ST_DWithin per query spaziale
+  Future<List<Moment>> getNearbyMoments({
+    required double centerLat,
+    required double centerLon,
+    required double radiusMeters,
+    int limit = 200,
+  }) async {
+    try {
+      // Usa la RPC function invece del filter (PostgREST non supporta filtri PostGIS)
+      final response = await _client.rpc(
+        'get_nearby_moments',
+        params: {
+          'center_lat': centerLat,
+          'center_lon': centerLon,
+          'radius_meters': radiusMeters,
+          'result_limit': limit,
+        },
+      );
+
+      return (response as List)
+          .map((json) => Moment.fromMap(Map<String, dynamic>.from(json)))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching nearby moments: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Recupera momenti all'interno di un bounding box
+  /// Usa RPC function per query viewport mappa
+  Future<List<Moment>> getMomentsInBounds({
+    required double swLat,
+    required double swLon,
+    required double neLat,
+    required double neLon,
+    int limit = 200,
+  }) async {
+    try {
+      // Usa la RPC function invece del filter (PostgREST non supporta filtri PostGIS)
+      final response = await _client.rpc(
+        'get_moments_in_bounds',
+        params: {
+          'sw_lat': swLat,
+          'sw_lon': swLon,
+          'ne_lat': neLat,
+          'ne_lon': neLon,
+          'result_limit': limit,
+        },
+      );
+
+      return (response as List)
+          .map((json) => Moment.fromMap(Map<String, dynamic>.from(json)))
+          .toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching moments in bounds: $e');
+      }
+      rethrow;
+    }
   }
 }
 
