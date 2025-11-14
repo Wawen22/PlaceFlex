@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -45,8 +44,6 @@ class MomentsRepository {
 
   Future<Moment> createMoment(CreateMomentInput input) async {
     final bucketRef = _client.storage.from(AppConstants.momentsBucket);
-
-    await _ensureBucketExists();
 
     String? mediaUrl;
     String? thumbnailUrl;
@@ -121,20 +118,6 @@ class MomentsRepository {
     final publicUrl = bucketRef.getPublicUrl(path);
 
     return _UploadResult(mediaUrl: publicUrl, thumbnailUrl: null);
-  }
-
-  Future<void> _ensureBucketExists() async {
-    try {
-      await _client.storage.createBucket(
-        AppConstants.momentsBucket,
-        const BucketOptions(public: true),
-      );
-    } on StorageException catch (error) {
-      if ('${error.statusCode}' == '409') {
-        return;
-      }
-      rethrow;
-    }
   }
 
   String _buildFilename(String profileId, String extension) {

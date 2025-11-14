@@ -17,9 +17,14 @@ import '../models/moment.dart';
 
 /// Redesigned CreateMomentPage 2026 - Step-by-step wizard
 class CreateMomentPage2026 extends StatefulWidget {
-  const CreateMomentPage2026({super.key, this.onMomentCreated});
+  const CreateMomentPage2026({
+    super.key,
+    this.onMomentCreated,
+    this.initialPosition,
+  });
 
   final VoidCallback? onMomentCreated;
+  final Position? initialPosition;
 
   @override
   State<CreateMomentPage2026> createState() => _CreateMomentPage2026State();
@@ -50,6 +55,14 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
   void initState() {
     super.initState();
     _loadProfile();
+
+    // Pre-fill lat/lon if initial position provided
+    if (widget.initialPosition != null) {
+      _latitudeController.text = widget.initialPosition!.latitude
+          .toStringAsFixed(6);
+      _longitudeController.text = widget.initialPosition!.longitude
+          .toStringAsFixed(6);
+    }
   }
 
   @override
@@ -150,6 +163,12 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
     setState(() => _isSubmitting = true);
 
     try {
+      // Use auth.uid() directly to satisfy RLS policy
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        throw StateError('Sessione scaduta. Effettua nuovamente il login.');
+      }
+
       final latitude = double.parse(_latitudeController.text.trim());
       final longitude = double.parse(_longitudeController.text.trim());
       final tags = _tagsController.text
@@ -160,7 +179,7 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
 
       await _momentsRepository.createMoment(
         CreateMomentInput(
-          profileId: _profile!.id,
+          profileId: userId, // Use auth.uid() instead of profile.id for RLS
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim().isEmpty
               ? null
@@ -177,7 +196,7 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
       if (!mounted) return;
       _showSnack('Momento pubblicato! 🎉', isSuccess: true);
       widget.onMomentCreated?.call();
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(true); // Return true to indicate success
     } catch (error) {
       _showSnack('Errore pubblicazione: $error', isSuccess: false);
     } finally {

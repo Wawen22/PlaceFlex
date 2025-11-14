@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:postgrest/postgrest.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:placeflex_app/core/constants.dart';
@@ -36,7 +35,6 @@ void main() {
   late _MockPostgrestTransformBuilder<PostgrestMap?> maybeSingleBuilder;
 
   setUpAll(() {
-    registerFallbackValue(BucketOptions(public: true));
     registerFallbackValue(FileOptions(contentType: 'image/jpeg'));
     registerFallbackValue(Uint8List(0));
     registerFallbackValue(Duration.zero);
@@ -55,9 +53,6 @@ void main() {
     when(
       () => storageClient.from(AppConstants.momentsBucket),
     ).thenReturn(fileApi);
-    when(
-      () => storageClient.createBucket(any(), any()),
-    ).thenAnswer((_) async => AppConstants.momentsBucket);
     when(
       () => fileApi.uploadBinary(
         any(),
@@ -163,9 +158,6 @@ void main() {
       expect(uploadedPath, endsWith('.png'));
       expect(uploadedOptions?.contentType, 'image/png');
 
-      verify(
-        () => storageClient.createBucket(AppConstants.momentsBucket, any()),
-      ).called(1);
       verify(
         () => fileApi.uploadBinary(
           any(),

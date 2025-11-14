@@ -9,6 +9,7 @@ import '../../../core/theme/colors_2026.dart';
 import '../../../core/theme/spacing_2026.dart';
 import '../../moments/data/moments_repository.dart';
 import '../../moments/models/moment.dart';
+import '../../moments/presentation/create_moment_page_2026.dart';
 import 'widgets/moment_details_sheet.dart';
 import 'widgets/moment_marker_icon.dart';
 
@@ -33,10 +34,10 @@ class _MapScreenState extends State<MapScreen> {
 
   // Clustering state
   double _currentZoom = _defaultZoom;
-  bool _isClusteringEnabled = true;
+  final bool _isClusteringEnabled = true;
   static const _clusterZoomThreshold =
       13.0; // Sotto questo zoom, attiva clustering
-  
+
   // Mappa per tracciare cluster positions → momenti
   final Map<String, List<Moment>> _clusterData = {};
 
@@ -184,39 +185,40 @@ class _MapScreenState extends State<MapScreen> {
       await _displayMomentsOnMap();
     }
   }
-  
+
   Future<void> _initializeUserLocationMarker() async {
     if (_mapboxMap == null) return;
-    
+
     // Crea circle annotation manager per user location
     _userLocationManager = await _mapboxMap!.annotations
         .createCircleAnnotationManager();
-    
+
     // Mostra posizione corrente se disponibile
     if (_currentPosition != null) {
       await _updateUserLocationMarker(_currentPosition!);
     }
-    
+
     // Setup real-time position stream
-    _positionStream = geo.Geolocator.getPositionStream(
-      locationSettings: const geo.LocationSettings(
-        accuracy: geo.LocationAccuracy.high,
-        distanceFilter: 10, // Update ogni 10 metri
-      ),
-    ).listen((position) {
-      _currentPosition = position;
-      _updateUserLocationMarker(position);
-    });
-    
+    _positionStream =
+        geo.Geolocator.getPositionStream(
+          locationSettings: const geo.LocationSettings(
+            accuracy: geo.LocationAccuracy.high,
+            distanceFilter: 10, // Update ogni 10 metri
+          ),
+        ).listen((position) {
+          _currentPosition = position;
+          _updateUserLocationMarker(position);
+        });
+
     debugPrint('📍 User location marker inizializzato con stream');
   }
-  
+
   Future<void> _updateUserLocationMarker(geo.Position position) async {
     if (_userLocationManager == null) return;
-    
+
     // Cancella marker precedenti
     await _userLocationManager!.deleteAll();
-    
+
     // Crea circle blu pulsante per user location
     final userLocationCircle = CircleAnnotationOptions(
       geometry: Point(
@@ -229,7 +231,7 @@ class _MapScreenState extends State<MapScreen> {
       circleStrokeColor: Colors.white.value,
       circleStrokeOpacity: 1.0,
     );
-    
+
     // Accuracy circle (semi-trasparente)
     final accuracyCircle = CircleAnnotationOptions(
       geometry: Point(
@@ -241,23 +243,30 @@ class _MapScreenState extends State<MapScreen> {
       circleStrokeWidth: 1.0,
       circleStrokeColor: Colors.blue.withOpacity(0.3).value,
     );
-    
-    await _userLocationManager!.createMulti([accuracyCircle, userLocationCircle]);
-    
-    debugPrint('📍 User location updated: ${position.latitude}, ${position.longitude}, accuracy: ${position.accuracy}m');
+
+    await _userLocationManager!.createMulti([
+      accuracyCircle,
+      userLocationCircle,
+    ]);
+
+    debugPrint(
+      '📍 User location updated: ${position.latitude}, ${position.longitude}, accuracy: ${position.accuracy}m',
+    );
   }
 
   void _handleMarkerTap(PointAnnotation annotation) {
     final annotationPos = annotation.geometry.coordinates;
-    final clusterKey = '${annotationPos.lat.toStringAsFixed(4)},${annotationPos.lng.toStringAsFixed(4)}';
-    
+    final clusterKey =
+        '${annotationPos.lat.toStringAsFixed(4)},${annotationPos.lng.toStringAsFixed(4)}';
+
     // Verifica se è un cluster
-    if (_clusterData.containsKey(clusterKey) && _clusterData[clusterKey]!.length > 1) {
+    if (_clusterData.containsKey(clusterKey) &&
+        _clusterData[clusterKey]!.length > 1) {
       // È un cluster: zoom to bounds
       _zoomToCluster(_clusterData[clusterKey]!);
       return;
     }
-    
+
     // È un marker singolo: trova il momento corrispondente
     final index = _nearbyMoments.indexWhere((moment) {
       return (moment.longitude - annotationPos.lng).abs() < 0.0001 &&
@@ -273,32 +282,32 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
   }
-  
+
   Future<void> _zoomToCluster(List<Moment> clusterMoments) async {
     if (_mapboxMap == null || clusterMoments.isEmpty) return;
-    
+
     // Calcola bounds del cluster
     double minLat = clusterMoments.first.latitude;
     double maxLat = clusterMoments.first.latitude;
     double minLon = clusterMoments.first.longitude;
     double maxLon = clusterMoments.first.longitude;
-    
+
     for (final moment in clusterMoments) {
       if (moment.latitude < minLat) minLat = moment.latitude;
       if (moment.latitude > maxLat) maxLat = moment.latitude;
       if (moment.longitude < minLon) minLon = moment.longitude;
       if (moment.longitude > maxLon) maxLon = moment.longitude;
     }
-    
+
     // Calcola centro e zoom appropriato
     final centerLat = (minLat + maxLat) / 2;
     final centerLon = (minLon + maxLon) / 2;
-    
+
     // Calcola distanza per determinare zoom (approssimativo)
     final latDiff = maxLat - minLat;
     final lonDiff = maxLon - minLon;
     final maxDiff = latDiff > lonDiff ? latDiff : lonDiff;
-    
+
     // Zoom level basato su span (empirico)
     double targetZoom = _clusterZoomThreshold + 2.0; // Default sopra threshold
     if (maxDiff < 0.001) {
@@ -308,25 +317,22 @@ class _MapScreenState extends State<MapScreen> {
     } else if (maxDiff < 0.01) {
       targetZoom = 14.0; // Media distanza
     }
-    
+
     // Anima camera verso il cluster
     final cameraOptions = CameraOptions(
       center: Point(coordinates: Position(centerLon, centerLat)),
       zoom: targetZoom,
-      padding: MbxEdgeInsets(
-        top: 100,
-        left: 50,
-        bottom: 100,
-        right: 50,
-      ),
+      padding: MbxEdgeInsets(top: 100, left: 50, bottom: 100, right: 50),
     );
-    
+
     await _mapboxMap!.flyTo(
       cameraOptions,
       MapAnimationOptions(duration: 800, startDelay: 0),
     );
-    
-    debugPrint('🎯 Zoom to cluster: ${clusterMoments.length} momenti, target zoom: $targetZoom');
+
+    debugPrint(
+      '🎯 Zoom to cluster: ${clusterMoments.length} momenti, target zoom: $targetZoom',
+    );
   }
 
   Future<void> _displayMomentsOnMap() async {
@@ -425,7 +431,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _displayClusters(List<Moment> moments, bool isDark) async {
     // Pulisci dati cluster precedenti
     _clusterData.clear();
-    
+
     // Algoritmo di clustering semplice basato su griglia
     final clusters = _createClusters(moments);
 
@@ -471,11 +477,14 @@ class _MapScreenState extends State<MapScreen> {
         );
 
         await _annotationManager!.create(option);
-        
+
         // Salva dati cluster per tap handling
-        final clusterKey = '${cluster.centerLat.toStringAsFixed(4)},${cluster.centerLon.toStringAsFixed(4)}';
+        final clusterKey =
+            '${cluster.centerLat.toStringAsFixed(4)},${cluster.centerLon.toStringAsFixed(4)}';
         _clusterData[clusterKey] = cluster.moments;
-        debugPrint('📦 Cluster creato: $clusterKey con ${cluster.moments.length} momenti');
+        debugPrint(
+          '📦 Cluster creato: $clusterKey con ${cluster.moments.length} momenti',
+        );
       }
     }
   }
@@ -526,6 +535,34 @@ class _MapScreenState extends State<MapScreen> {
       await _centerMapOnPosition();
     } else {
       await _initializeLocation();
+    }
+  }
+
+  Future<void> _createMoment() async {
+    if (_currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attendere il rilevamento della posizione...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            CreateMomentPage2026(initialPosition: _currentPosition),
+      ),
+    );
+
+    // Se è stato creato un momento, ricarica la mappa
+    if (result == true && _currentPosition != null) {
+      await _loadMomentsForLocation(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+      );
     }
   }
 
@@ -646,6 +683,20 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                   ],
                 ),
+              ),
+            ),
+          ),
+
+          // FAB per creare momento
+          Positioned(
+            bottom: AppSpacing2026.xl + 72,
+            right: AppSpacing2026.md,
+            child: SafeArea(
+              child: FloatingActionButton(
+                heroTag: 'map_create_moment',
+                onPressed: _createMoment,
+                backgroundColor: AppColors2026.secondary,
+                child: const Icon(Icons.add_rounded, color: Colors.white),
               ),
             ),
           ),
