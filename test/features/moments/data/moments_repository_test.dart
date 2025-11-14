@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:placeflex_app/core/constants.dart';
 import 'package:placeflex_app/features/moments/data/moments_repository.dart';
+import 'package:placeflex_app/features/moments/data/prepared_moment_media.dart';
 import 'package:placeflex_app/features/moments/models/moment.dart';
 
 class _MockSupabaseClient extends Mock implements SupabaseClient {}
@@ -122,6 +123,13 @@ void main() {
       });
 
       final repository = MomentsRepository(client: client);
+      final preparedMedia = PreparedMomentMedia(
+        type: MomentMediaType.photo,
+        bytes: Uint8List.fromList([1, 2, 3]),
+        extension: 'jpg',
+        contentType: 'image/jpeg',
+        sizeBytes: 3,
+      );
 
       final result = await repository.createMoment(
         CreateMomentInput(
@@ -134,7 +142,8 @@ void main() {
             name: 'tramonto.png',
             mimeType: 'image/png',
           ),
-          mediaBytes: Uint8List.fromList([1, 2, 3]),
+          preparedMedia: preparedMedia,
+          mediaSizeBytes: preparedMedia.sizeBytes,
           visibility: MomentVisibility.public,
           latitude: 41.8902,
           longitude: 12.4923,
@@ -148,15 +157,18 @@ void main() {
 
       expect(payload['profile_id'], 'profile-1');
       expect(payload['media_type'], 'photo');
+      expect(payload['media_size_bytes'], 3);
+      expect(payload['media_duration_ms'], isNull);
       expect(payload['visibility'], 'public');
+      expect(payload['media_processing_status'], 'ready');
       expect(payload['location'], {
         'type': 'Point',
         'coordinates': [12.4923, 41.8902],
       });
 
       expect(uploadedPath, startsWith('profile-1/'));
-      expect(uploadedPath, endsWith('.png'));
-      expect(uploadedOptions?.contentType, 'image/png');
+      expect(uploadedPath, endsWith('.jpg'));
+      expect(uploadedOptions?.contentType, 'image/jpeg');
 
       verify(
         () => fileApi.uploadBinary(
@@ -215,6 +227,76 @@ void main() {
           fileOptions: any(named: 'fileOptions'),
         ),
       );
+    });
+  });
+
+  group('spatial queries', () {
+    late _MockPostgrestFilterBuilder rpcBuilder;
+
+    setUp(() {
+      rpcBuilder = _MockPostgrestFilterBuilder();
+      when(
+        () => client.rpc(any(), params: any(named: 'params')),
+      ).thenAnswer((_) => rpcBuilder);
+      _stubFutureOnFilterBuilder(
+        builder: rpcBuilder,
+        result: [
+          _momentRow(),
+        ],
+      );
+    });
+
+    test('getMomentsInBounds passes server-side filters when provided', () async {
+      final repository = MomentsRepository(client: client);
+
+      final result = await repository.getMomentsInBounds(
+        swLat: 45.0,
+        swLon: 9.0,
+        neLat: 46.0,
+        neLon: 10.0,
+        mediaTypes: const [
+          MomentMediaType.video,
+          MomentMediaType.photo,
+        ],
+        limit: 50,
+      );
+
+      expect(result, isNotEmpty);
+      final verification = verify(
+        () => client.rpc(
+          'get_moments_in_bounds',
+          params: captureAny(named: 'params'),
+        ),
+      );
+      final params =
+          Map<String, dynamic>.from(verification.captured.first as Map);
+      expect(params['result_limit'], 50);
+      expect(
+        params['media_types'],
+        containsAllInOrder(['video', 'photo']),
+      );
+    });
+
+    test('getNearbyMoments omits filters when not needed', () async {
+      final repository = MomentsRepository(client: client);
+
+      final result = await repository.getNearbyMoments(
+        centerLat: 45.0,
+        centerLon: 9.0,
+        radiusMeters: 1000,
+      );
+
+      expect(result, isNotEmpty);
+      final verification = verify(
+        () => client.rpc(
+          'get_nearby_moments',
+          params: captureAny(named: 'params'),
+        ),
+      );
+      final params =
+          Map<String, dynamic>.from(verification.captured.first as Map);
+      expect(params.containsKey('media_types'), isFalse);
+      expect(params['radius_meters'], 1000);
     });
   });
 
@@ -288,4 +370,79 @@ void _stubFutureOnBuilder<T>({
   when(
     () => builder.asStream(),
   ).thenAnswer((_) => Future<T>.value(result).asStream());
+}
+
+void _stubFutureOnFilterBuilder({
+  required _MockPostgrestFilterBuilder builder,
+  required PostgrestList result,
+}) {
+  when(
+    () => builder.then<dynamic>(any(), onError: any(named: 'onError')),
+  ).thenAnswer((invocation) {
+    final onValue = invocation.positionalArguments.first as dynamic Function(
+      PostgrestList,
+    );
+    final onError = invocation.namedArguments[#onError] as Function?;
+    return Future<PostgrestList>.value(result).then(
+      onValue,
+      onError: onError,
+    );
+  });
+
+  when(() => builder.catchError(any(), test: any(named: 'test'))).thenAnswer((
+    invocation,
+  ) {
+    final handler = invocation.positionalArguments.first as Function;
+    final test =
+        invocation.namedArguments[#test] as bool Function(Object)? ??
+        (_) => true;
+    return Future<PostgrestList>.value(result).catchError(handler, test: test);
+  });
+
+  when(
+    () => builder.timeout(any(), onTimeout: any(named: 'onTimeout')),
+  ).thenAnswer((invocation) {
+    final duration = invocation.positionalArguments.first as Duration;
+    final onTimeout =
+        invocation.namedArguments[#onTimeout]
+            as FutureOr<PostgrestList> Function()?;
+    return Future<PostgrestList>.value(result)
+        .timeout(duration, onTimeout: onTimeout);
+  });
+
+  when(() => builder.whenComplete(any())).thenAnswer((invocation) {
+    final action = invocation.positionalArguments.first as FutureOr Function();
+    return Future<PostgrestList>.value(result).whenComplete(action);
+  });
+
+  when(
+    () => builder.asStream(),
+  ).thenAnswer((_) => Future<PostgrestList>.value(result).asStream());
+}
+
+Map<String, dynamic> _momentRow({
+  String id = 'moment-1',
+  String mediaType = 'photo',
+  double lon = 12.5,
+  double lat = 41.9,
+}) {
+  return {
+    'id': id,
+    'profile_id': 'profile-1',
+    'title': 'Sample',
+    'description': null,
+    'media_type': mediaType,
+    'media_url': null,
+    'thumbnail_url': null,
+    'tags': [],
+    'visibility': 'public',
+    'status': 'published',
+    'radius_m': 100,
+    'location': {
+      'type': 'Point',
+      'coordinates': [lon, lat],
+    },
+    'created_at': DateTime.utc(2024, 1, 1).toIso8601String(),
+    'updated_at': DateTime.utc(2024, 1, 1).toIso8601String(),
+  };
 }

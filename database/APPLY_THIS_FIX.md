@@ -55,3 +55,7 @@ Dopo aver aggiunto tutte e 4 le policy, riprova a creare un momento nell'app.
 - Gli utenti possono caricare file solo nella propria cartella (path = `{auth.uid()}/{filename}`)
 - Gli utenti possono modificare/eliminare solo i propri file
 - Tutti possono leggere i file pubblici nel bucket moments
+
+## Novità 15 Nov 2025
+- La migrazione `20251115_storage_media_policy.sql` crea automaticamente una funzione `public.moments_media_is_allowed(metadata, name)` e nuove policy che applicano i limiti peso (foto 6MB, video 80MB, audio 20MB). Assicurati di applicarla tramite CLI/Supabase migrations.
+- La migrazione `20251115_advanced_media_metadata.sql` aggiunge colonne `media_size_bytes`, `media_duration_ms`, `media_processing_status` e i relativi constraint: applicala prima di lanciare la nuova app.

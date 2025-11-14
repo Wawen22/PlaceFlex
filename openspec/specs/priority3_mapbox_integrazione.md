@@ -23,6 +23,12 @@
 - ✅ **Accuracy Visualization**: Cerchio semi-trasparente per GPS uncertainty
 - ✅ **Smart Zoom Calculation**: Target zoom basato su cluster span (empirico)
 
+### Recent Additions (Nov 14, 2025)
+- ✅ **Viewport-based Loading**: la mappa ora usa `get_moments_in_bounds` con bounding box reale + padding. Debounce da 600ms e overlay "Aggiornamento area".
+- ✅ **Filtri Server-side**: gli RPC `get_nearby_moments` e `get_moments_in_bounds` accettano `media_types[]`; i toggle UI aggiornano subito il server.
+- ✅ **UX Feedback**: indicatori top-right quando il fetch viewport è in corso (+ throttling per evitare spam di richieste).
+- ✅ **Marker Icon Cache & Tap Feedback**: icone dei momenti riusabili via LRU cache, animazione bounce-on-appear e feedback di scala sui tap.
+
 ### Files Modified
 - `lib/features/map/presentation/map_screen.dart` (878 LOC)
   - `_clusterData` Map per tracciare cluster → momenti
@@ -36,15 +42,14 @@
 
 ### Nice-to-Have Features
 - [ ] **Marker Animations** (2-3 hours)
+  - ✅ Bounce on appear + tap feedback (Nov 14, 2025)
   - Pulse animation continua (1.0→1.2→1.0, 2s loop)
-  - Bounce on appear (elasticOut curve)
-  - Scale on tap feedback (200ms)
-  - Stagger delay per multiple markers
+  - Stagger delay per multiple markers / idle glow
 
 - [ ] **Performance Optimizations** (4-6 hours)
-  - Icon cache manager (LRU, max 50 entries)
-  - Viewport-based loading (replace radius query)
-  - Debounce map movement (300ms)
+  - ✅ Icon cache manager (LRU, max 50 entries) e ri-registrazione automatica delle immagini
+  - ✅ Viewport-based loading (replace radius query) — resta progressive loading e prioritizzazione visiva
+  - Debounce map movement (300ms) → parzialmente coperto via throttle fetch (600ms)
   - Progressive loading (visible markers first)
 
 - [ ] **Advanced Features** (Post-MVP)

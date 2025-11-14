@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -12,6 +13,18 @@ import '../../moments/models/moment.dart';
 import '../../moments/presentation/create_moment_page_2026.dart';
 import 'widgets/moment_details_sheet.dart';
 import 'widgets/moment_marker_icon.dart';
+
+class _CachedIcon {
+  _CachedIcon({
+    required this.bytes,
+    required this.width,
+    required this.height,
+  });
+
+  final Uint8List bytes;
+  final int width;
+  final int height;
+}
 
 /// MapScreen 2026 - Mappa interattiva con momenti nearby
 class MapScreen extends StatefulWidget {
@@ -28,9 +41,13 @@ class _MapScreenState extends State<MapScreen> {
   geo.Position? _currentPosition;
   List<Moment> _nearbyMoments = [];
   bool _isLoading = true;
+  bool _isViewportLoading = false;
   String? _errorMessage;
-  Timer? _refreshTimer;
+  Timer? _markerRefreshDebounce;
   StreamSubscription<geo.Position>? _positionStream;
+  bool _isFetchingViewport = false;
+  bool _pendingForcedViewportFetch = false;
+  DateTime? _lastViewportFetch;
 
   // Clustering state
   double _currentZoom = _defaultZoom;
@@ -38,8 +55,6 @@ class _MapScreenState extends State<MapScreen> {
   static const _clusterZoomThreshold =
       13.0; // Sotto questo zoom, attiva clustering
 
-  // Mappa per tracciare cluster positions → momenti
-  final Map<String, List<Moment>> _clusterData = {};
 
   // Filtri per tipo media
   final Map<MomentMediaType, bool> _typeFilters = {
@@ -50,12 +65,21 @@ class _MapScreenState extends State<MapScreen> {
   };
 
   final _momentsRepository = MomentsRepository();
+  final Map<String, _CachedIcon> _markerIconCache =
+      <String, _CachedIcon>{};
+  final Map<String, _CachedIcon> _clusterIconCache =
+      <String, _CachedIcon>{};
+  final Set<String> _styleImageKeys = {};
+  final Map<String, PointAnnotation> _momentAnnotations = {};
+  final Map<String, String> _annotationToMomentId = {};
+  final Map<String, List<Moment>> _clusterAnnotationData = {};
 
   // Default: Milano centro (fallback se location negato)
   static const _defaultLat = 45.4642;
   static const _defaultLon = 9.1900;
   static const _defaultZoom = 14.0;
   static const _nearbyRadiusMeters = 5000.0; // 5km
+  static const _viewportFetchThrottle = Duration(milliseconds: 600);
 
   @override
   void initState() {
@@ -65,7 +89,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
+    _markerRefreshDebounce?.cancel();
     _positionStream?.cancel();
     super.dispose();
   }
@@ -115,10 +139,12 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _loadMomentsForLocation(double lat, double lon) async {
     try {
+      final filters = _selectedMediaFilters();
       final moments = await _momentsRepository.getNearbyMoments(
         centerLat: lat,
         centerLon: lon,
         radiusMeters: _nearbyRadiusMeters,
+        mediaTypes: filters,
       );
 
       setState(() {
@@ -142,31 +168,9 @@ class _MapScreenState extends State<MapScreen> {
     _centerMapOnPosition();
     _initializeAnnotationManager();
     _initializeUserLocationMarker();
-
-    // Listener per zoom changes per clustering dinamico
-    _setupZoomListener();
-  }
-
-  Future<void> _setupZoomListener() async {
-    if (_mapboxMap == null) return;
-
-    // Aggiorna zoom ogni 500ms durante pan/zoom
-    Timer.periodic(const Duration(milliseconds: 500), (timer) async {
-      if (_mapboxMap == null) {
-        timer.cancel();
-        return;
-      }
-
-      final cameraState = await _mapboxMap!.getCameraState();
-      final newZoom = cameraState.zoom;
-
-      if ((newZoom - _currentZoom).abs() > 0.5) {
-        setState(() {
-          _currentZoom = newZoom;
-        });
-        await _displayMomentsOnMap();
-      }
-    });
+    _styleImageKeys.clear();
+    unawaited(_registerCachedStyleImages());
+    unawaited(_fetchMomentsForCurrentViewport(force: true));
   }
 
   Future<void> _initializeAnnotationManager() async {
@@ -254,33 +258,35 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void _handleMarkerTap(PointAnnotation annotation) {
-    final annotationPos = annotation.geometry.coordinates;
-    final clusterKey =
-        '${annotationPos.lat.toStringAsFixed(4)},${annotationPos.lng.toStringAsFixed(4)}';
-
-    // Verifica se è un cluster
-    if (_clusterData.containsKey(clusterKey) &&
-        _clusterData[clusterKey]!.length > 1) {
-      // È un cluster: zoom to bounds
-      _zoomToCluster(_clusterData[clusterKey]!);
+  Future<void> _handleMarkerTap(PointAnnotation annotation) async {
+    final clusterMoments = _clusterAnnotationData[annotation.id];
+    if (clusterMoments != null && clusterMoments.length > 1) {
+      await _zoomToCluster(clusterMoments);
       return;
     }
 
-    // È un marker singolo: trova il momento corrispondente
-    final index = _nearbyMoments.indexWhere((moment) {
-      return (moment.longitude - annotationPos.lng).abs() < 0.0001 &&
-          (moment.latitude - annotationPos.lat).abs() < 0.0001;
-    });
+    final momentId = _annotationToMomentId[annotation.id];
+    if (momentId == null) return;
 
-    if (index != -1) {
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => MomentDetailsSheet(moment: _nearbyMoments[index]),
-      );
+    Moment? tappedMoment;
+    for (final moment in _nearbyMoments) {
+      if (moment.id == momentId) {
+        tappedMoment = moment;
+        break;
+      }
     }
+
+    if (tappedMoment == null) return;
+
+    await _playMarkerTapFeedback(annotation);
+    if (!mounted) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => MomentDetailsSheet(moment: tappedMoment!),
+    );
   }
 
   Future<void> _zoomToCluster(List<Moment> clusterMoments) async {
@@ -335,13 +341,210 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  List<MomentMediaType>? _selectedMediaFilters() {
+    final activeTypes = _typeFilters.entries
+        .where((entry) => entry.value)
+        .map((entry) => entry.key)
+        .toList();
+
+    if (activeTypes.length == _typeFilters.length) {
+      return null;
+    }
+    return activeTypes;
+  }
+
+  Future<void> _registerCachedStyleImages() async {
+    if (_mapboxMap == null) return;
+    for (final entry in _markerIconCache.entries) {
+      await _addStyleImage(entry.key, entry.value);
+    }
+    for (final entry in _clusterIconCache.entries) {
+      await _addStyleImage(entry.key, entry.value);
+    }
+  }
+
+  Future<void> _addStyleImage(String imageId, _CachedIcon icon) async {
+    if (_mapboxMap == null || _styleImageKeys.contains(imageId)) {
+      return;
+    }
+    final mbxImage = MbxImage(
+      width: icon.width,
+      height: icon.height,
+      data: icon.bytes,
+    );
+    try {
+      await _mapboxMap!.style.addStyleImage(
+        imageId,
+        1.0,
+        mbxImage,
+        false,
+        const [],
+        const [],
+        null,
+      );
+      _styleImageKeys.add(imageId);
+    } catch (error) {
+      _styleImageKeys.add(imageId);
+    }
+  }
+
+  Future<String> _getMarkerIconId(
+    MomentMediaType type,
+    bool isDark,
+  ) async {
+    final key = 'marker-${type.name}-${isDark ? 'dark' : 'light'}';
+    var cached = _markerIconCache[key];
+    if (cached == null) {
+      final bytes = await MomentMarkerIcon.createMarkerForType(
+        mediaType: type,
+        isDark: isDark,
+      );
+      cached = _CachedIcon(bytes: bytes, width: 56, height: 56);
+      _markerIconCache[key] = cached;
+    }
+    await _addStyleImage(key, cached);
+    return key;
+  }
+
+  Future<String> _getClusterIconId(int count, bool isDark) async {
+    final label = count > 99 ? '99+' : count.toString();
+    final key = 'cluster-${isDark ? 'dark' : 'light'}-$label';
+    var cached = _clusterIconCache[key];
+    if (cached == null) {
+      final bytes = await MomentMarkerIcon.createClusterMarker(
+        count: count,
+        isDark: isDark,
+      );
+      cached = _CachedIcon(bytes: bytes, width: 64, height: 64);
+      _clusterIconCache[key] = cached;
+    }
+    await _addStyleImage(key, cached);
+    return key;
+  }
+
+  void _onStyleLoaded(StyleLoadedEventData event) {
+    _styleImageKeys.clear();
+    unawaited(_registerCachedStyleImages());
+    unawaited(_displayMomentsOnMap());
+  }
+
+  void _handleCameraChanged(CameraChangedEventData event) {
+    final newZoom = event.cameraState.zoom;
+    if ((newZoom - _currentZoom).abs() < 0.05) {
+      return;
+    }
+    _currentZoom = newZoom;
+    _markerRefreshDebounce?.cancel();
+    _markerRefreshDebounce = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      unawaited(_displayMomentsOnMap());
+    });
+  }
+
+  void _handleMapIdle(MapIdleEventData event) {
+    unawaited(_fetchMomentsForCurrentViewport());
+  }
+
+  Future<void> _fetchMomentsForCurrentViewport({bool force = false}) async {
+    if (_mapboxMap == null) return;
+
+    if (_isFetchingViewport) {
+      if (force) {
+        _pendingForcedViewportFetch = true;
+      }
+      return;
+    }
+
+    if (!force &&
+        _lastViewportFetch != null &&
+        DateTime.now().difference(_lastViewportFetch!) <
+            _viewportFetchThrottle) {
+      return;
+    }
+
+    _isFetchingViewport = true;
+    if (mounted) {
+      setState(() {
+        _isViewportLoading = true;
+      });
+    }
+
+    try {
+      final cameraState = await _mapboxMap!.getCameraState();
+      final bounds = await _mapboxMap!
+          .coordinateBoundsForCameraUnwrapped(
+        cameraState.toCameraOptions(),
+      );
+      final expandedBounds = _expandBounds(bounds, paddingFactor: 0.15);
+      final filters = _selectedMediaFilters();
+
+      final moments = await _momentsRepository.getMomentsInBounds(
+        swLat: expandedBounds.southwest.coordinates.lat.toDouble(),
+        swLon: expandedBounds.southwest.coordinates.lng.toDouble(),
+        neLat: expandedBounds.northeast.coordinates.lat.toDouble(),
+        neLon: expandedBounds.northeast.coordinates.lng.toDouble(),
+        mediaTypes: filters,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _nearbyMoments = moments;
+        _errorMessage = null;
+        _isViewportLoading = false;
+      });
+      _lastViewportFetch = DateTime.now();
+      await _displayMomentsOnMap();
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _isViewportLoading = false;
+          _errorMessage = 'Errore caricamento momenti: $error';
+        });
+      }
+    } finally {
+      _isFetchingViewport = false;
+      if (_pendingForcedViewportFetch) {
+        _pendingForcedViewportFetch = false;
+        unawaited(_fetchMomentsForCurrentViewport(force: true));
+      }
+    }
+  }
+
+  CoordinateBounds _expandBounds(
+    CoordinateBounds bounds, {
+    double paddingFactor = 0.1,
+  }) {
+    final sw = bounds.southwest.coordinates;
+    final ne = bounds.northeast.coordinates;
+
+    final latSpan = (ne.lat - sw.lat).abs();
+    final lonSpan = (ne.lng - sw.lng).abs();
+
+    final latPadding = latSpan * paddingFactor;
+    final lonPadding = lonSpan * paddingFactor;
+
+    return CoordinateBounds(
+      southwest: Point(
+        coordinates: Position(sw.lng - lonPadding, sw.lat - latPadding),
+      ),
+      northeast: Point(
+        coordinates: Position(ne.lng + lonPadding, ne.lat + latPadding),
+      ),
+      infiniteBounds: false,
+    );
+  }
+
   Future<void> _displayMomentsOnMap() async {
     if (_mapboxMap == null || _annotationManager == null) return;
     if (_nearbyMoments.isEmpty) return;
 
     try {
-      // Cancella marker esistenti
+      // Cancella marker e mappe locali
       await _annotationManager!.deleteAll();
+      _momentAnnotations.clear();
+      _annotationToMomentId.clear();
+      _clusterAnnotationData.clear();
 
       final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -377,116 +580,112 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _displayIndividualMarkers(
     List<Moment> moments,
-    bool isDark,
-  ) async {
-    // Registra icone per ogni tipo di media
-    final iconIds = <MomentMediaType, String>{};
-    for (final type in MomentMediaType.values) {
-      final iconId =
-          'moment-${type.name}-icon-${DateTime.now().millisecondsSinceEpoch}';
-
-      final iconBytes = await MomentMarkerIcon.createMarkerForType(
-        mediaType: type,
-        isDark: isDark,
-      );
-
-      final mbxImage = MbxImage(width: 56, height: 56, data: iconBytes);
-
-      await _mapboxMap!.style.addStyleImage(
-        iconId,
-        1.0,
-        mbxImage,
-        false,
-        [],
-        [],
-        null,
-      );
-
-      iconIds[type] = iconId;
-      debugPrint('🎨 Registrata icona per ${type.name}: $iconId');
+    bool isDark, {
+    bool clearExisting = false,
+  }) async {
+    if (_annotationManager == null || moments.isEmpty) {
+      return;
     }
 
-    // Aggiungi marker per ogni momento
+    if (clearExisting) {
+      _momentAnnotations.clear();
+      _annotationToMomentId.clear();
+    }
+
+    final requiredTypes = moments.map((m) => m.mediaType).toSet();
+    final iconIds = <MomentMediaType, String>{};
+    for (final type in requiredTypes) {
+      iconIds[type] = await _getMarkerIconId(type, isDark);
+    }
+
     final options = moments.map((moment) {
-      final iconId =
-          iconIds[moment.mediaType] ?? iconIds[MomentMediaType.photo]!;
-
-      debugPrint(
-        '📍 Marker per momento ${moment.id}: tipo=${moment.mediaType.name}, icona=$iconId',
-      );
-
+      final iconId = iconIds[moment.mediaType]!;
       return PointAnnotationOptions(
         geometry: Point(
           coordinates: Position(moment.longitude, moment.latitude),
         ),
         iconImage: iconId,
-        iconSize: 1.0,
+        iconSize: 0.9,
         iconAnchor: IconAnchor.CENTER,
       );
     }).toList();
 
-    await _annotationManager!.createMulti(options);
+    final annotations = await _annotationManager!.createMulti(options);
+    for (var i = 0; i < annotations.length; i++) {
+      final annotation = annotations[i];
+      if (annotation == null) continue;
+      final moment = moments[i];
+      _momentAnnotations[moment.id] = annotation;
+      _annotationToMomentId[annotation.id] = moment.id;
+      _animateMarkerEntrance(annotation);
+    }
   }
 
   Future<void> _displayClusters(List<Moment> moments, bool isDark) async {
-    // Pulisci dati cluster precedenti
-    _clusterData.clear();
-
-    // Algoritmo di clustering semplice basato su griglia
     final clusters = _createClusters(moments);
-
-    // Registra icona cluster
-    const clusterIconId = 'cluster-icon';
+    final singletonMoments = <Moment>[];
+    final clusterOptions = <PointAnnotationOptions>[];
+    final clusterMomentsReference = <List<Moment>>[];
 
     for (final cluster in clusters) {
       if (cluster.moments.length == 1) {
-        // Singolo momento: usa icona normale
-        await _displayIndividualMarkers([cluster.moments.first], isDark);
-      } else {
-        // Cluster: crea icona con contatore
-        final clusterBytes = await MomentMarkerIcon.createClusterMarker(
-          count: cluster.moments.length,
-          isDark: isDark,
-        );
+        singletonMoments.add(cluster.moments.first);
+        continue;
+      }
 
-        final clusterIconIdWithCount =
-            '$clusterIconId-${cluster.moments.length}';
-        final mbxImage = MbxImage(width: 64, height: 64, data: clusterBytes);
-
-        try {
-          await _mapboxMap!.style.addStyleImage(
-            clusterIconIdWithCount,
-            1.0,
-            mbxImage,
-            false,
-            [],
-            [],
-            null,
-          );
-        } catch (e) {
-          // Icona già esistente
-        }
-
-        final option = PointAnnotationOptions(
+      final iconId = await _getClusterIconId(cluster.moments.length, isDark);
+      clusterOptions.add(
+        PointAnnotationOptions(
           geometry: Point(
             coordinates: Position(cluster.centerLon, cluster.centerLat),
           ),
-          iconImage: clusterIconIdWithCount,
-          iconSize: 1.0,
+          iconImage: iconId,
           iconAnchor: IconAnchor.CENTER,
-        );
-
-        await _annotationManager!.create(option);
-
-        // Salva dati cluster per tap handling
-        final clusterKey =
-            '${cluster.centerLat.toStringAsFixed(4)},${cluster.centerLon.toStringAsFixed(4)}';
-        _clusterData[clusterKey] = cluster.moments;
-        debugPrint(
-          '📦 Cluster creato: $clusterKey con ${cluster.moments.length} momenti',
-        );
-      }
+          iconSize: 1.0,
+        ),
+      );
+      clusterMomentsReference.add(cluster.moments);
     }
+
+    final createdClusters = await _annotationManager!.createMulti(
+      clusterOptions,
+    );
+
+    for (var i = 0; i < createdClusters.length; i++) {
+      final annotation = createdClusters[i];
+      if (annotation == null) continue;
+      _clusterAnnotationData[annotation.id] = clusterMomentsReference[i];
+    }
+
+    if (singletonMoments.isNotEmpty) {
+      await _displayIndividualMarkers(
+        singletonMoments,
+        isDark,
+        clearExisting: false,
+      );
+    }
+  }
+
+  Future<void> _animateMarkerEntrance(PointAnnotation annotation) async {
+    if (_annotationManager == null) return;
+    try {
+      annotation.iconSize = 1.15;
+      await _annotationManager!.update(annotation);
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      annotation.iconSize = 1.0;
+      await _annotationManager!.update(annotation);
+    } catch (_) {}
+  }
+
+  Future<void> _playMarkerTapFeedback(PointAnnotation annotation) async {
+    if (_annotationManager == null) return;
+    try {
+      annotation.iconSize = 1.2;
+      await _annotationManager!.update(annotation);
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+      annotation.iconSize = 1.0;
+      await _annotationManager!.update(annotation);
+    } catch (_) {}
   }
 
   List<_MomentCluster> _createClusters(List<Moment> moments) {
@@ -627,6 +826,9 @@ class _MapScreenState extends State<MapScreen> {
             styleUri: isDark ? MapboxStyles.DARK : MapboxStyles.MAPBOX_STREETS,
             textureView: true,
             onMapCreated: _onMapCreated,
+            onStyleLoadedListener: _onStyleLoaded,
+            onCameraChangeListener: _handleCameraChanged,
+            onMapIdleListener: _handleMapIdle,
           ),
 
           // Top status bar
@@ -686,6 +888,48 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
+
+          if (_isViewportLoading)
+            Positioned(
+              top: AppSpacing2026.xxxl,
+              right: AppSpacing2026.md,
+              child: SafeArea(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing2026.md,
+                    vertical: AppSpacing2026.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: AppRadius2026.roundedLG,
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing2026.xs),
+                      Text(
+                        'Aggiornamento area',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // FAB per creare momento
           Positioned(
@@ -751,6 +995,9 @@ class _MapScreenState extends State<MapScreen> {
                               !(_typeFilters[MomentMediaType.photo] ?? true);
                         });
                         _displayMomentsOnMap();
+                        unawaited(
+                          _fetchMomentsForCurrentViewport(force: true),
+                        );
                       },
                     ),
                     const SizedBox(width: AppSpacing2026.xs),
@@ -764,6 +1011,9 @@ class _MapScreenState extends State<MapScreen> {
                               !(_typeFilters[MomentMediaType.video] ?? true);
                         });
                         _displayMomentsOnMap();
+                        unawaited(
+                          _fetchMomentsForCurrentViewport(force: true),
+                        );
                       },
                     ),
                     const SizedBox(width: AppSpacing2026.xs),
@@ -777,6 +1027,9 @@ class _MapScreenState extends State<MapScreen> {
                               !(_typeFilters[MomentMediaType.audio] ?? true);
                         });
                         _displayMomentsOnMap();
+                        unawaited(
+                          _fetchMomentsForCurrentViewport(force: true),
+                        );
                       },
                     ),
                     const SizedBox(width: AppSpacing2026.xs),
@@ -790,6 +1043,9 @@ class _MapScreenState extends State<MapScreen> {
                               !(_typeFilters[MomentMediaType.text] ?? true);
                         });
                         _displayMomentsOnMap();
+                        unawaited(
+                          _fetchMomentsForCurrentViewport(force: true),
+                        );
                       },
                     ),
                   ],

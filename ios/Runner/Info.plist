@@ -62,5 +62,7 @@
 	<string>PlaceFlex usa la fotocamera per catturare nuovi momenti.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>PlaceFlex accede alla libreria per permetterti di selezionare media esistenti.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PlaceFlex usa il microfono per registrare audio nei momenti.</string>
 </dict>
 </plist>

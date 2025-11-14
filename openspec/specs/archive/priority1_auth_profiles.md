@@ -1,4 +1,6 @@
-# Priorità 1 — Autenticazione & Profili Base
+# Priorità 1 - Autenticazione & Profili Base
+
+> **Status**: ✅ Completed & Archived (Nov 2025). Auth + profile editing are live in app build `v0.5.0`. Reactivate this spec only if we expand auth providers or profile capabilities.
 
 ## Scope
 - Onboarding tramite email + password (sign-up e login) su Supabase Auth con deep link custom `io.placeflex.app://auth-callback`

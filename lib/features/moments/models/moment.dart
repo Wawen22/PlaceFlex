@@ -4,6 +4,8 @@ enum MomentVisibility { public, private }
 
 enum MomentStatus { draft, published, flagged, review }
 
+enum MomentMediaProcessingStatus { ready, queued, processing, failed }
+
 MomentMediaType momentMediaTypeFromString(String input) {
   return MomentMediaType.values.firstWhere(
     (type) => type.name == input,
@@ -25,6 +27,18 @@ MomentStatus momentStatusFromString(String input) {
   );
 }
 
+MomentMediaProcessingStatus momentMediaProcessingStatusFromString(
+  String? input,
+) {
+  if (input == null) {
+    return MomentMediaProcessingStatus.ready;
+  }
+  return MomentMediaProcessingStatus.values.firstWhere(
+    (type) => type.name == input,
+    orElse: () => MomentMediaProcessingStatus.ready,
+  );
+}
+
 class Moment {
   Moment({
     required this.id,
@@ -34,6 +48,10 @@ class Moment {
     required this.mediaType,
     this.mediaUrl,
     this.thumbnailUrl,
+    this.mediaSizeBytes,
+    this.mediaDurationMs,
+    required this.mediaProcessingStatus,
+    this.mediaProcessingError,
     this.tags = const [],
     required this.visibility,
     required this.status,
@@ -51,6 +69,10 @@ class Moment {
   final MomentMediaType mediaType;
   final String? mediaUrl;
   final String? thumbnailUrl;
+  final int? mediaSizeBytes;
+  final int? mediaDurationMs;
+  final MomentMediaProcessingStatus mediaProcessingStatus;
+  final String? mediaProcessingError;
   final List<String> tags;
   final MomentVisibility visibility;
   final MomentStatus status;
@@ -85,6 +107,12 @@ class Moment {
       mediaType: momentMediaTypeFromString(map['media_type'] as String),
       mediaUrl: map['media_url'] as String?,
       thumbnailUrl: map['thumbnail_url'] as String?,
+      mediaSizeBytes: (map['media_size_bytes'] as num?)?.toInt(),
+      mediaDurationMs: (map['media_duration_ms'] as num?)?.toInt(),
+      mediaProcessingStatus: momentMediaProcessingStatusFromString(
+        map['media_processing_status'] as String?,
+      ),
+      mediaProcessingError: map['media_processing_error'] as String?,
       tags: (map['tags'] as List?)?.cast<String>() ?? const [],
       visibility: momentVisibilityFromString(map['visibility'] as String),
       status: momentStatusFromString(map['status'] as String),

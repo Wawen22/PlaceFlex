@@ -1,16 +1,67 @@
-# placeflex_app
+# 📍 PlaceFlex
 
-A new Flutter project.
+Una piattaforma social basata sulla geolocalizzazione per condividere momenti autentici legati a luoghi specifici.
 
-## Getting Started
+## 🚀 Quick Start
 
-This project is a starting point for a Flutter application.
+### Prerequisiti
+- Flutter SDK 3.35.7+
+- Android Studio con Android SDK (API 31+)
+- Account Supabase
 
-A few resources to get you started if this is your first Flutter project:
+### Setup
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```powershell
+# Clone e dipendenze
+flutter pub get
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+# Configura Supabase
+copy .env.example .env
+# Modifica .env con le tue credenziali
+
+# Avvia l'app
+flutter run
+```
+
+## 🛠️ Sviluppo
+
+### Test
+```powershell
+flutter test
+```
+
+### Build
+```powershell
+# Android
+flutter build apk --release
+```
+
+## 📚 Documentazione
+
+- **[Setup Windows](setup_windows_flutter.md)** - Guida completa per ambiente di sviluppo
+- **[Redesign 2026](docs/REDESIGN_2026.md)** - Roadmap e specifiche tecniche
+
+## 🏗️ Architettura
+
+```
+lib/
+├── app/          # Configurazione e routing
+├── core/         # Utilities e servizi condivisi
+└── features/     # Feature modulari
+```
+
+## 🔧 Tech Stack
+
+- **Framework**: Flutter 3.35.7
+- **Backend**: Supabase (Auth, Storage, PostgreSQL)
+- **Mappe**: Mapbox GL
+- **State Management**: Provider/Riverpod
+- **Architettura**: Clean Architecture
+
+## 📝 License
+
+Questo progetto è proprietario.
+
+---
+
+Made with 💙 by the PlaceFlex Team

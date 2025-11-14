@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants.dart';
 import '../models/moment.dart';
+import 'moment_media_processor.dart';
+import 'prepared_moment_media.dart';
 
 class CreateMomentInput {
   CreateMomentInput({
@@ -14,12 +16,17 @@ class CreateMomentInput {
     required this.mediaType,
     this.mediaFile,
     this.mediaBytes,
+    this.preparedMedia,
+    this.mediaSizeBytes,
+    this.mediaDurationMs,
     required this.visibility,
     required this.latitude,
     required this.longitude,
     this.tags = const [],
     this.radiusMeters = 100,
     this.status = MomentStatus.published,
+    this.processingStatus = MomentMediaProcessingStatus.ready,
+    this.processingError,
   });
 
   final String profileId;
@@ -28,32 +35,60 @@ class CreateMomentInput {
   final MomentMediaType mediaType;
   final XFile? mediaFile;
   final Uint8List? mediaBytes;
+  final PreparedMomentMedia? preparedMedia;
+  final int? mediaSizeBytes;
+  final int? mediaDurationMs;
   final MomentVisibility visibility;
   final double latitude;
   final double longitude;
   final List<String> tags;
   final int radiusMeters;
   final MomentStatus status;
+  final MomentMediaProcessingStatus processingStatus;
+  final String? processingError;
 }
 
 class MomentsRepository {
-  MomentsRepository({SupabaseClient? client})
-    : _client = client ?? Supabase.instance.client;
+  MomentsRepository({SupabaseClient? client, MomentMediaProcessor? mediaProcessor})
+    : _client = client ?? Supabase.instance.client,
+      _mediaProcessor = mediaProcessor ?? MomentMediaProcessor();
 
   final SupabaseClient _client;
+  final MomentMediaProcessor _mediaProcessor;
 
-  Future<Moment> createMoment(CreateMomentInput input) async {
+  Future<Moment> createMoment(
+    CreateMomentInput input, {
+    ValueChanged<MediaUploadProgress>? onProgress,
+  }) async {
     final bucketRef = _client.storage.from(AppConstants.momentsBucket);
 
     String? mediaUrl;
     String? thumbnailUrl;
+    PreparedMomentMedia? preparedMedia = input.preparedMedia;
 
     if (input.mediaType != MomentMediaType.text) {
+      preparedMedia ??= await _mediaProcessor.process(
+        mediaType: input.mediaType,
+        file: input.mediaFile ??
+            (throw ArgumentError(
+              'File richiesto per il tipo ${input.mediaType.name}',
+            )),
+        cachedBytes: input.mediaBytes,
+        recordedDuration: input.mediaDurationMs != null
+            ? Duration(milliseconds: input.mediaDurationMs!)
+            : null,
+      );
+    }
+
+    if (preparedMedia != null) {
+      onProgress?.call(
+        MediaUploadProgress(phase: MediaUploadPhase.preparing, progress: 0.15),
+      );
       final uploadResult = await _uploadMedia(
         bucketRef,
-        input.mediaFile,
-        input.mediaBytes,
-        input,
+        preparedMedia,
+        input.profileId,
+        onProgress,
       );
       mediaUrl = uploadResult?.mediaUrl;
       thumbnailUrl = uploadResult?.thumbnailUrl;
@@ -66,8 +101,13 @@ class MomentsRepository {
       'media_type': input.mediaType.name,
       'media_url': mediaUrl,
       'thumbnail_url': thumbnailUrl,
+      'media_size_bytes': input.mediaSizeBytes ?? preparedMedia?.sizeBytes,
+      'media_duration_ms':
+          input.mediaDurationMs ?? preparedMedia?.durationMs,
       'visibility': input.visibility.name,
       'status': input.status.name,
+      'media_processing_status': input.processingStatus.name,
+      'media_processing_error': input.processingError,
       'tags': input.tags,
       'radius_m': input.radiusMeters,
       'location': {
@@ -75,6 +115,10 @@ class MomentsRepository {
         'coordinates': [input.longitude, input.latitude],
       },
     };
+
+    onProgress?.call(
+      MediaUploadProgress(phase: MediaUploadPhase.saving, progress: 0.9),
+    );
 
     final inserted = await _client
         .from('moments')
@@ -86,115 +130,57 @@ class MomentsRepository {
       throw StateError('Creazione momento fallita.');
     }
 
-    return Moment.fromMap(Map<String, dynamic>.from(inserted));
+    final moment = Moment.fromMap(Map<String, dynamic>.from(inserted));
+    onProgress?.call(
+      MediaUploadProgress(phase: MediaUploadPhase.completed, progress: 1),
+    );
+    return moment;
   }
 
   Future<_UploadResult?> _uploadMedia(
     StorageFileApi bucketRef,
-    XFile? file,
-    Uint8List? bytes,
-    CreateMomentInput input,
+    PreparedMomentMedia media,
+    String profileId,
+    ValueChanged<MediaUploadProgress>? onProgress,
   ) async {
-    if (file == null && bytes == null) {
-      throw ArgumentError(
-        'File media richiesto per il tipo ${input.mediaType.name}',
-      );
-    }
+    final fileName = _buildFilename(profileId, media.extension);
+    final path = '$profileId/$fileName';
 
-    final byteData = bytes ?? await file!.readAsBytes();
-
-    final extension = _resolveExtension(input.mediaType, file);
-    final contentType = _resolveContentType(input.mediaType, file);
-    final fileName = _buildFilename(input.profileId, extension);
-
-    final path = '${input.profileId}/$fileName';
-
+    onProgress?.call(
+      MediaUploadProgress(phase: MediaUploadPhase.uploading, progress: 0.35),
+    );
     await bucketRef.uploadBinary(
       path,
-      byteData,
-      fileOptions: FileOptions(contentType: contentType, upsert: true),
+      media.bytes,
+      fileOptions: FileOptions(contentType: media.contentType, upsert: true),
+    );
+
+    onProgress?.call(
+      MediaUploadProgress(phase: MediaUploadPhase.uploading, progress: 0.7),
     );
 
     final publicUrl = bucketRef.getPublicUrl(path);
 
-    return _UploadResult(mediaUrl: publicUrl, thumbnailUrl: null);
+    String? thumbnailUrl;
+    if (media.previewBytes != null) {
+      final thumbPath = '$profileId/${fileName}_thumb.jpg';
+      await bucketRef.uploadBinary(
+        thumbPath,
+        media.previewBytes!,
+        fileOptions: FileOptions(contentType: 'image/jpeg', upsert: true),
+      );
+      thumbnailUrl = bucketRef.getPublicUrl(thumbPath);
+    }
+
+    return _UploadResult(
+      mediaUrl: publicUrl,
+      thumbnailUrl: thumbnailUrl,
+    );
   }
 
   String _buildFilename(String profileId, String extension) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     return '${profileId}_$timestamp.$extension';
-  }
-
-  String _resolveExtension(MomentMediaType type, XFile? file) {
-    final detected = _detectExtension(file);
-    if (detected != null && detected.isNotEmpty) {
-      return detected;
-    }
-
-    switch (type) {
-      case MomentMediaType.photo:
-        return 'jpg';
-      case MomentMediaType.video:
-        return 'mp4';
-      case MomentMediaType.audio:
-        return 'm4a';
-      case MomentMediaType.text:
-        return 'txt';
-    }
-  }
-
-  String _resolveContentType(MomentMediaType type, XFile? file) {
-    final mimeType = file?.mimeType;
-    if (mimeType != null && mimeType.isNotEmpty) {
-      return mimeType;
-    }
-
-    switch (type) {
-      case MomentMediaType.photo:
-        return 'image/jpeg';
-      case MomentMediaType.video:
-        return 'video/mp4';
-      case MomentMediaType.audio:
-        return 'audio/mp4';
-      case MomentMediaType.text:
-        return 'text/plain';
-    }
-  }
-
-  String? _detectExtension(XFile? file) {
-    if (file == null) return null;
-
-    final name = file.name;
-    final fromName = _extensionFromValue(name);
-    if (fromName != null) {
-      return fromName;
-    }
-
-    final path = file.path;
-    final fromPath = _extensionFromValue(path);
-    if (fromPath != null) {
-      return fromPath;
-    }
-
-    final mimeType = file.mimeType;
-    if (mimeType != null && mimeType.contains('/')) {
-      return mimeType.split('/').last;
-    }
-
-    return null;
-  }
-
-  String? _extensionFromValue(String? value) {
-    if (value == null || value.isEmpty) {
-      return null;
-    }
-
-    final dotIndex = value.lastIndexOf('.');
-    if (dotIndex == -1 || dotIndex == value.length - 1) {
-      return null;
-    }
-
-    return value.substring(dotIndex + 1);
   }
 
   /// Recupera momenti entro un raggio specificato da coordinate centrali
@@ -203,18 +189,25 @@ class MomentsRepository {
     required double centerLat,
     required double centerLon,
     required double radiusMeters,
+    List<MomentMediaType>? mediaTypes,
     int limit = 200,
   }) async {
     try {
       // Usa la RPC function invece del filter (PostgREST non supporta filtri PostGIS)
+      final params = <String, dynamic>{
+        'center_lat': centerLat,
+        'center_lon': centerLon,
+        'radius_meters': radiusMeters,
+        'result_limit': limit,
+      };
+
+      if (mediaTypes != null && mediaTypes.isNotEmpty) {
+        params['media_types'] = mediaTypes.map((type) => type.name).toList();
+      }
+
       final response = await _client.rpc(
         'get_nearby_moments',
-        params: {
-          'center_lat': centerLat,
-          'center_lon': centerLon,
-          'radius_meters': radiusMeters,
-          'result_limit': limit,
-        },
+        params: params,
       );
 
       return (response as List)
@@ -235,19 +228,26 @@ class MomentsRepository {
     required double swLon,
     required double neLat,
     required double neLon,
+    List<MomentMediaType>? mediaTypes,
     int limit = 200,
   }) async {
     try {
       // Usa la RPC function invece del filter (PostgREST non supporta filtri PostGIS)
+      final params = <String, dynamic>{
+        'sw_lat': swLat,
+        'sw_lon': swLon,
+        'ne_lat': neLat,
+        'ne_lon': neLon,
+        'result_limit': limit,
+      };
+
+      if (mediaTypes != null && mediaTypes.isNotEmpty) {
+        params['media_types'] = mediaTypes.map((type) => type.name).toList();
+      }
+
       final response = await _client.rpc(
         'get_moments_in_bounds',
-        params: {
-          'sw_lat': swLat,
-          'sw_lon': swLon,
-          'ne_lat': neLat,
-          'ne_lon': neLon,
-          'result_limit': limit,
-        },
+        params: params,
       );
 
       return (response as List)
@@ -267,4 +267,16 @@ class _UploadResult {
 
   final String mediaUrl;
   final String? thumbnailUrl;
+}
+
+enum MediaUploadPhase { idle, preparing, uploading, saving, completed }
+
+class MediaUploadProgress {
+  MediaUploadProgress({
+    required this.phase,
+    required this.progress,
+  });
+
+  final MediaUploadPhase phase;
+  final double progress;
 }
