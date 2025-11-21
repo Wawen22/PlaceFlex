@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../data/auth_repository.dart';
 
 import '../../../core/constants.dart';
 import '../../../core/theme/colors_2026.dart';
@@ -32,11 +33,12 @@ class _AuthPageState extends State<AuthPage>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  SupabaseClient get _client => Supabase.instance.client;
+  late final AuthRepository _authRepository;
 
   @override
   void initState() {
     super.initState();
+    _authRepository = AuthRepository();
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -81,12 +83,12 @@ class _AuthPageState extends State<AuthPage>
 
     try {
       if (_isLoginMode) {
-        await _client.auth.signInWithPassword(email: email, password: password);
+        await _authRepository.signInWithEmail(email: email, password: password);
         if (mounted) {
           _showSnack('Benvenuto su PlaceFlex! 🎉', isSuccess: true);
         }
       } else {
-        final response = await _client.auth.signUp(
+        final response = await _authRepository.signUpWithEmail(
           email: email,
           password: password,
           emailRedirectTo: AppConstants.authRedirectUri,

@@ -11,6 +11,7 @@ import '../../../core/theme/spacing_2026.dart';
 import '../../moments/data/moments_repository.dart';
 import '../../moments/models/moment.dart';
 import '../../moments/presentation/create_moment_page_2026.dart';
+import '../../moments/presentation/moments_feed_sheet.dart';
 import 'widgets/moment_details_sheet.dart';
 import 'widgets/moment_marker_icon.dart';
 
@@ -962,9 +963,9 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Filtri tipo media
+          // Filtri tipo media (Spostati in alto per non essere coperti dal feed)
           Positioned(
-            bottom: AppSpacing2026.xl,
+            top: AppSpacing2026.xxxl + 50, // Sotto la status bar
             left: AppSpacing2026.md,
             child: SafeArea(
               child: Container(
@@ -1094,6 +1095,28 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
               ),
+            ),
+
+          // Feed Sheet
+          if (_nearbyMoments.isNotEmpty)
+            MomentsFeedSheet(
+              moments: _nearbyMoments,
+              isLoading: _isLoading,
+              onMomentTap: (moment) {
+                _mapboxMap?.flyTo(
+                  CameraOptions(
+                    center: Point(
+                      coordinates: Position(
+                        moment.longitude,
+                        moment.latitude,
+                      ),
+                    ),
+                    zoom: 16,
+                    pitch: 45,
+                  ),
+                  MapAnimationOptions(duration: 1500),
+                );
+              },
             ),
         ],
       ),

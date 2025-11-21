@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import 'app/app.dart';
 
@@ -29,6 +30,12 @@ Future<void> main() async {
       authFlowType: AuthFlowType.pkce,
     ),
   );
+
+  final mapboxAccessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
+  if (mapboxAccessToken == null || mapboxAccessToken.isEmpty) {
+    throw StateError('MAPBOX_ACCESS_TOKEN is missing. Add it to the .env file.');
+  }
+  MapboxOptions.setAccessToken(mapboxAccessToken);
 
   runApp(const PlaceFlexApp());
 }

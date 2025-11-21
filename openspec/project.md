@@ -46,3 +46,10 @@ PlaceFlex è un'app mobile che trasforma luoghi fisici in bacheche di ricordi co
 - Mapbox (chiavi da configurare per mappe vettoriali)
 - Provider OAuth: Google (configurazione redirect `io.placeflex.app://auth-callback` richiesta)
 - Futuri provider: OneSignal per push, Sentry/PostHog per monitoring
+
+## Current Status (Updated: 2025-11-21)
+- **Auth**: Implemented (Email/Password) with `AuthRepository`.
+- **Map**: Backend implemented (RPC functions), Mapbox configured. UI pending full interactivity.
+- **Moments**: Structure exists, implementation pending.
+- **Profile**: Structure exists, implementation pending.
+

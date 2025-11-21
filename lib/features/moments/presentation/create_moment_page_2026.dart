@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/theme/colors_2026.dart';
 import '../../../core/theme/spacing_2026.dart';
@@ -47,7 +48,7 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
   final _momentsRepository = MomentsRepository();
   final _mediaProcessor = MomentMediaProcessor();
   final _imagePicker = ImagePicker();
-  final Record _audioRecorder = Record();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   UserProfile? _profile;
@@ -144,12 +145,16 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
       return;
     }
 
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
     await _audioRecorder.start(
       const RecordConfig(
         encoder: AudioEncoder.aacLc,
         bitRate: 96000,
         sampleRate: 44100,
       ),
+      path: path,
     );
 
     _audioTimer?.cancel();
@@ -355,7 +360,7 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
       widget.onMomentCreated?.call();
       Navigator.of(context).pop(true);
     } catch (error) {
-      _showSnack('Errore pubblicazione: ' + error.toString(), isSuccess: false);
+      _showSnack('Errore pubblicazione: $error', isSuccess: false);
     } finally {
       if (mounted) {
         setState(() {
@@ -466,7 +471,7 @@ class _CreateMomentPage2026State extends State<CreateMomentPage2026> {
     return Container(
       padding: AppSpacing2026.allMD,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
         borderRadius: AppRadius2026.roundedXL,
       ),
       child: Row(
