@@ -49,7 +49,7 @@ PlaceFlex è un'app mobile che trasforma luoghi fisici in bacheche di ricordi co
 
 ## Current Status (Updated: 2025-11-21)
 - **Auth**: Implemented (Email/Password) with `AuthRepository`.
-- **Map**: Backend implemented (RPC functions), Mapbox configured. UI pending full interactivity.
-- **Moments**: Structure exists, implementation pending.
-- **Profile**: Structure exists, implementation pending.
+- **Map**: Backend implemented, Mapbox configured, Filters and Feed integrated.
+- **Moments**: Creation flow (Media Capture, Upload) and Discovery (Feed) implemented.
+- **Profile**: Completed. Premium UI implemented with Parallax Header and Grid Gallery.
 

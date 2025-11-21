@@ -7,6 +7,9 @@ import '../../../core/widgets/modern_badge_avatar.dart';
 import '../../../core/widgets/modern_button.dart';
 import '../../../core/widgets/modern_card.dart';
 import '../../../core/widgets/modern_text_field.dart';
+import '../../auth/data/auth_repository.dart';
+import '../../moments/data/moments_repository.dart';
+import '../../moments/models/moment.dart';
 import '../data/profile_repository.dart';
 import '../models/profile.dart';
 
@@ -24,12 +27,16 @@ class _ProfilePage2026State extends State<ProfilePage2026>
   final _displayNameController = TextEditingController();
   final _usernameController = TextEditingController();
   final _bioController = TextEditingController();
+  final _authRepository = AuthRepository();
+  final _momentsRepository = MomentsRepository();
   final _repository = ProfileRepository();
 
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isEditing = false;
   UserProfile? _profile;
+  List<Moment>? _myMoments;
+
 
   late TabController _tabController;
 
@@ -60,7 +67,11 @@ class _ProfilePage2026State extends State<ProfilePage2026>
 
     try {
       final profile = await _repository.getOrCreateProfile(user.id);
+      final moments = await _momentsRepository.getMyMoments(user.id);
+      
       _profile = profile;
+      _myMoments = moments;
+      
       _displayNameController.text = profile.displayName ?? '';
       _usernameController.text = profile.username ?? '';
       _bioController.text = profile.bio ?? '';
@@ -147,105 +158,170 @@ class _ProfilePage2026State extends State<ProfilePage2026>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: isDark
-            ? AppGradients2026.backgroundDark
-            : AppGradients2026.backgroundLight,
-      ),
-      child: CustomScrollView(
-        slivers: [
-          // Profile Header
-          SliverToBoxAdapter(child: _buildProfileHeader(theme, user)),
-
-          // Stats Row
-          SliverToBoxAdapter(child: _buildStatsRow(theme)),
-
-          // Tab Bar
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: _StickyTabBarDelegate(
-              TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(
-                    text: 'Creati',
-                    icon: Icon(Icons.add_location_alt_outlined),
-                  ),
-                  Tab(text: 'Scoperti', icon: Icon(Icons.explore_outlined)),
-                  Tab(
-                    text: 'Impostazioni',
-                    icon: Icon(Icons.settings_outlined),
-                  ),
-                ],
-              ),
-              isDark: isDark,
-            ),
-          ),
-
-          // Tab Content
-          SliverFillRemaining(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildCreatedTab(),
-                _buildDiscoveredTab(),
-                _buildSettingsTab(theme, user),
-              ],
-            ),
-          ),
-        ],
+    return Scaffold(
+      backgroundColor: isDark ? AppColors2026.backgroundDark : AppColors2026.backgroundLight,
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            _buildSliverAppBar(theme, user, isDark),
+          ];
+        },
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildCreatedTab(),
+            _buildDiscoveredTab(),
+            _buildSettingsTab(theme, user),
+          ],
+        ),
       ),
     );
   }
+  Widget _buildSliverAppBar(ThemeData theme, User user, bool isDark) {
+    final name = _profile?.displayName?.isNotEmpty == true
+        ? _profile!.displayName!
+        : (user.email?.isNotEmpty == true ? user.email! : 'Utente');
+    final initials = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
 
-  Widget _buildProfileHeader(ThemeData theme, User user) {
-    final initials = (_profile?.displayName ?? user.email ?? 'U')
-        .substring(0, 1)
-        .toUpperCase();
-
-    return Padding(
-      padding: AppSpacing2026.allLG,
-      child: ModernCard(
-        variant: ModernCardVariant.gradient,
-        gradient: AppGradients2026.buttonPrimary,
-        child: Column(
-          children: [
-            ModernAvatar(
-              initials: initials,
-              size: ModernAvatarSize.xlarge,
-              color: AppColors2026.secondary,
-              hasBorder: true,
-            ),
-            const SizedBox(height: AppSpacing2026.md),
-            Text(
-              _profile?.displayName ?? 'Utente',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: AppSpacing2026.xxxs),
-            Text(
-              '@${_profile?.username ?? 'username'}',
-              style: theme.textTheme.bodyLarge?.copyWith(color: Colors.white70),
-            ),
-            if (_profile?.bio != null && _profile!.bio!.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing2026.sm),
-              Text(
-                _profile!.bio!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white.withOpacity(0.9),
-                ),
-                textAlign: TextAlign.center,
-              ),
+    return SliverAppBar(
+      expandedHeight: 420,
+      pinned: true,
+      stretch: true,
+      backgroundColor: isDark ? AppColors2026.surfaceDark : Colors.white,
+      elevation: 0,
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(48),
+        child: Container(
+          color: isDark ? AppColors2026.surfaceDark : Colors.white,
+          child: TabBar(
+            controller: _tabController,
+            labelColor: theme.colorScheme.primary,
+            unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+            indicatorColor: theme.colorScheme.primary,
+            indicatorSize: TabBarIndicatorSize.label,
+            dividerColor: theme.dividerColor,
+            tabs: const [
+              Tab(text: 'Creati'),
+              Tab(text: 'Scoperti'),
+              Tab(text: 'Impostazioni'),
             ],
-            const SizedBox(height: AppSpacing2026.md),
-            ModernButton(
-              onPressed: () => setState(() => _isEditing = !_isEditing),
-              variant: ModernButtonVariant.outlined,
-              icon: _isEditing ? Icons.close_rounded : Icons.edit_rounded,
-              child: Text(_isEditing ? 'Annulla' : 'Modifica profilo'),
+          ),
+        ),
+      ),
+      flexibleSpace: FlexibleSpaceBar(
+        stretchModes: const [
+          StretchMode.zoomBackground,
+          StretchMode.blurBackground,
+        ],
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Gradient Background
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: isDark
+                      ? [
+                          AppColors2026.primary.withOpacity(0.3),
+                          AppColors2026.backgroundDark,
+                        ]
+                      : [
+                          AppColors2026.primary.withOpacity(0.1),
+                          Colors.white,
+                        ],
+                ),
+              ),
+            ),
+            
+            // Content
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 20),
+                  // Avatar
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors2026.primary.withOpacity(0.4),
+                          blurRadius: 24,
+                          spreadRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: ModernAvatar(
+                      initials: initials,
+                      size: ModernAvatarSize.xlarge,
+                      color: AppColors2026.primary,
+                      hasBorder: true,
+                      imageUrl: _profile?.avatarUrl,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing2026.md),
+                  
+                  // Name
+                  Text(
+                    name,
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  
+                  // Username
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '@${_profile?.username ?? 'username'}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  
+                  if (_profile?.bio != null && _profile!.bio!.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing2026.md),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        _profile!.bio!,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: AppSpacing2026.lg),
+                  // Stats inside header
+                  _buildStatsRow(theme),
+                  
+                  const SizedBox(height: AppSpacing2026.md),
+                  ModernButton(
+                    onPressed: () => setState(() => _isEditing = !_isEditing),
+                    variant: ModernButtonVariant.text,
+                    size: ModernButtonSize.small,
+                    icon: _isEditing ? Icons.close_rounded : Icons.edit_rounded,
+                    child: Text(_isEditing ? 'Annulla' : 'Modifica profilo'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -253,69 +329,65 @@ class _ProfilePage2026State extends State<ProfilePage2026>
     );
   }
 
+
+
   Widget _buildStatsRow(ThemeData theme) {
-    return Padding(
-      padding: AppSpacing2026.horizontalLG,
-      child: Row(
-        children: [
-          Expanded(
-            child: _StatCard(
-              icon: Icons.location_on_rounded,
-              value: '0',
-              label: 'Momenti',
-              color: AppColors2026.primary,
-            ),
-          ),
-          const SizedBox(width: AppSpacing2026.sm),
-          Expanded(
-            child: _StatCard(
-              icon: Icons.favorite_rounded,
-              value: '0',
-              label: 'Mi piace',
-              color: AppColors2026.accent,
-            ),
-          ),
-          const SizedBox(width: AppSpacing2026.sm),
-          Expanded(
-            child: _StatCard(
-              icon: Icons.explore_rounded,
-              value: '0',
-              label: 'Scoperte',
-              color: AppColors2026.secondary,
-            ),
-          ),
-        ],
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _StatItem(
+          value: '${_myMoments?.length ?? 0}',
+          label: 'Momenti',
+        ),
+        Container(height: 24, width: 1, color: theme.dividerColor),
+        const _StatItem(
+          value: '0',
+          label: 'Mi piace',
+        ),
+        Container(height: 24, width: 1, color: theme.dividerColor),
+        const _StatItem(
+          value: '0',
+          label: 'Scoperte',
+        ),
+      ],
     );
   }
 
   Widget _buildCreatedTab() {
-    return Padding(
-      padding: AppSpacing2026.allLG,
-      child: Center(
+    if (_myMoments == null || _myMoments!.isEmpty) {
+      return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.add_location_alt_outlined,
-              size: AppIconSize2026.huge,
-              color: AppColors2026.primary.withOpacity(0.5),
+              size: 48,
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
             ),
-            const SizedBox(height: AppSpacing2026.md),
+            const SizedBox(height: 16),
             Text(
               'Nessun momento creato',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: AppSpacing2026.xs),
-            Text(
-              'I tuoi momenti appariranno qui',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
           ],
         ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      physics: const ClampingScrollPhysics(), // Better for NestedScrollView
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.75,
       ),
+      itemCount: _myMoments!.length,
+      itemBuilder: (context, index) {
+        final moment = _myMoments![index];
+        return _MomentGridItem(moment: moment);
+      },
     );
   }
 
@@ -471,41 +543,101 @@ class _ProfilePage2026State extends State<ProfilePage2026>
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.icon,
+class _StatItem extends StatelessWidget {
+  const _StatItem({
     required this.value,
     required this.label,
-    required this.color,
   });
 
-  final IconData icon;
   final String value;
   final String label;
-  final Color color;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    return Column(
+      children: [
+        Text(
+          value,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
-    return ModernCard(
-      variant: ModernCardVariant.elevated,
-      padding: AppSpacing2026.allMD,
-      child: Column(
+class _MomentGridItem extends StatelessWidget {
+  const _MomentGridItem({required this.moment});
+
+  final Moment moment;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+        image: moment.thumbnailUrl != null
+            ? DecorationImage(
+                image: NetworkImage(moment.thumbnailUrl!),
+                fit: BoxFit.cover,
+              )
+            : null,
+      ),
+      child: Stack(
         children: [
-          Icon(icon, color: color, size: AppIconSize2026.lg),
-          const SizedBox(height: AppSpacing2026.xxs),
-          Text(
-            value,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: color,
+          if (moment.thumbnailUrl == null)
+            Center(
+              child: Icon(
+                Icons.image_not_supported_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          // Gradient Overlay
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 60,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(16),
+                ),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.7),
+                  ],
+                ),
+              ),
             ),
           ),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          // Title
+          Positioned(
+            bottom: 12,
+            left: 12,
+            right: 12,
+            child: Text(
+              moment.title,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -557,34 +689,4 @@ class _InfoTile extends StatelessWidget {
   }
 }
 
-class _StickyTabBarDelegate extends SliverPersistentHeaderDelegate {
-  const _StickyTabBarDelegate(this.tabBar, {required this.isDark});
 
-  final TabBar tabBar;
-  final bool isDark;
-
-  @override
-  double get minExtent => 64;
-  @override
-  double get maxExtent => 64;
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    return Container(
-      color: isDark
-          ? AppColors2026.backgroundDark
-          : AppColors2026.backgroundLight,
-      padding: AppSpacing2026.horizontalLG,
-      child: tabBar,
-    );
-  }
-
-  @override
-  bool shouldRebuild(_StickyTabBarDelegate oldDelegate) {
-    return false;
-  }
-}

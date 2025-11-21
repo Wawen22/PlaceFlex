@@ -260,6 +260,18 @@ class MomentsRepository {
       rethrow;
     }
   }
+
+  Future<List<Moment>> getMyMoments(String userId) async {
+    final response = await _client
+        .from('moments')
+        .select()
+        .eq('profile_id', userId)
+        .order('created_at', ascending: false);
+
+    return (response as List)
+        .map((json) => Moment.fromMap(Map<String, dynamic>.from(json)))
+        .toList();
+  }
 }
 
 class _UploadResult {
